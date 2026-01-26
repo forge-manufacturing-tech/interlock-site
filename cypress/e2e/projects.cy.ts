@@ -4,23 +4,23 @@ describe('Projects Management', () => {
     beforeEach(() => {
         // Register and login before each test with unique email
         const email = `test-projects-${Date.now()}@example.com`
-        
+
         cy.visit('/login')
-        cy.contains("Don't have an account?").click()
+        cy.contains("Create New Account").click()
         cy.get('input[type="text"]').type('Test User')
         cy.get('input[type="email"]').type(email)
         cy.get('input[type="password"]').type(password)
         cy.get('button[type="submit"]').click()
-        
+
         // Wait for redirect to complete
         cy.url({ timeout: 20000 }).should('eq', 'http://localhost:3000/')
-        cy.contains('Projects', { timeout: 20000 }).should('be.visible')
+        cy.contains('PROJECTS', { timeout: 20000 }).should('be.visible')
         // Wait for page to fully load
         cy.contains(/no projects found/i, { timeout: 10000 })
     })
 
     it('should display empty projects page', () => {
-        cy.contains('Projects').should('be.visible')
+        cy.contains('PROJECTS').should('be.visible')
         cy.contains(/no projects found/i).should('be.visible')
     })
 
