@@ -11,6 +11,7 @@ export function SessionsPage() {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newSessionTitle, setNewSessionTitle] = useState('');
     const [selectedSession, setSelectedSession] = useState<SessionResponse | null>(null);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     // BOM Converter State
     const [blobs, setBlobs] = useState<BlobResponse[]>([]);
@@ -204,6 +205,35 @@ INSTRUCTION:
 
     // --- Renders ---
 
+    const renderSessionListItems = () => {
+        if (sessions.length === 0) {
+            return (
+                <div className="text-center py-8 text-industrial-steel-500 text-xs font-mono italic">
+                    No history
+                </div>
+            );
+        }
+        return (
+            <div className="space-y-1">
+                {sessions.map(s => (
+                    <button
+                        key={s.id}
+                        onClick={() => {
+                            setSelectedSession(s);
+                            setMobileMenuOpen(false);
+                        }}
+                        className={`w-full text-left p-2 rounded-sm text-xs font-mono truncate transition-all ${selectedSession?.id === s.id
+                            ? 'bg-industrial-copper-500/10 text-industrial-copper-500 border-l-2 border-industrial-copper-500'
+                            : 'text-industrial-steel-400 hover:bg-industrial-steel-800'
+                            }`}
+                    >
+                        {s.title || 'Untitled Operation'}
+                    </button>
+                ))}
+            </div>
+        );
+    };
+
     const renderEmptyState = () => (
         <div className="flex flex-col items-center justify-center h-full p-12 border-2 border-dashed border-industrial-concrete bg-industrial-steel-900/20 rounded-sm group hover:border-industrial-copper-500/50 transition-colors">
             <svg className="w-24 h-24 text-industrial-steel-600 mb-6 group-hover:text-industrial-copper-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -371,46 +401,57 @@ INSTRUCTION:
             <header className="border-b border-industrial-concrete bg-industrial-steel-900/80 backdrop-blur-sm sticky top-0 z-50">
                 <div className="px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/')} className="text-industrial-steel-400 hover:text-industrial-copper-500 transition-colors font-mono text-sm uppercase">← Back</button>
-                        <h1 className="industrial-headline text-xl">{project?.name} <span className="text-industrial-steel-600 mx-2">//</span> BOM CONVERTER</h1>
+                        <button onClick={() => setMobileMenuOpen(true)} className="lg:hidden text-industrial-steel-400 hover:text-industrial-copper-500 mr-2">
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                        </button>
+                        <button onClick={() => navigate('/')} className="text-industrial-steel-400 hover:text-industrial-copper-500 transition-colors font-mono text-sm uppercase flex items-center">
+                            <span>←</span>
+                            <span className="hidden sm:inline ml-2">Back</span>
+                        </button>
+                        <h1 className="industrial-headline text-xl truncate max-w-[150px] sm:max-w-none">
+                            {project?.name}
+                            <span className="hidden sm:inline">
+                                <span className="text-industrial-steel-600 mx-2">//</span> BOM CONVERTER
+                            </span>
+                        </h1>
                     </div>
                     <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 industrial-btn rounded-sm text-xs">+ New Session</button>
                 </div>
             </header>
 
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 overflow-hidden relative">
+                {/* Mobile Backdrop */}
+                {mobileMenuOpen && (
+                    <div
+                        className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
+                        onClick={() => setMobileMenuOpen(false)}
+                    />
+                )}
+
                 {/* Minimal History Sidebar */}
-                <div className="w-64 border-r border-industrial-concrete bg-industrial-steel-900/50 hidden lg:block overflow-y-auto scanlines">
+                <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-industrial-steel-900 border-r border-industrial-concrete transform transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 lg:block overflow-y-auto scanlines ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                     <div className="p-4">
                         <h2 className="text-[10px] font-bold text-industrial-steel-500 uppercase tracking-widest mb-4 font-mono">History</h2>
-                        {sessions.length === 0 ? (
-                            <div className="text-center py-8 text-industrial-steel-500 text-xs font-mono italic">
-                                No history
-                            </div>
-                        ) : (
-                            <div className="space-y-1">
-                                {sessions.map(s => (
-                                    <button
-                                        key={s.id}
-                                        onClick={() => setSelectedSession(s)}
-                                        className={`w-full text-left p-2 rounded-sm text-xs font-mono truncate transition-all ${selectedSession?.id === s.id
-                                            ? 'bg-industrial-copper-500/10 text-industrial-copper-500 border-l-2 border-industrial-copper-500'
-                                            : 'text-industrial-steel-400 hover:bg-industrial-steel-800'
-                                            }`}
-                                    >
-                                        {s.title || 'Untitled Operation'}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                        {renderSessionListItems()}
                     </div>
                 </div>
 
                 {/* Main Content */}
                 <div className="flex-1 bg-industrial-steel-950 overflow-y-auto relative">
                     {!selectedSession ? (
-                        <div className="flex items-center justify-center h-full">
-                            <div className="text-center text-industrial-steel-500">
+                        <div className="flex flex-col items-center justify-center h-full p-4">
+                            {/* Mobile: Show Session List */}
+                            <div className="w-full max-w-sm lg:hidden">
+                                <h2 className="text-center text-industrial-steel-500 font-mono text-sm uppercase mb-4">Select Session</h2>
+                                <div className="border border-industrial-concrete rounded-sm bg-industrial-steel-900/50 p-2">
+                                    {renderSessionListItems()}
+                                </div>
+                            </div>
+
+                            {/* Desktop: Show Message */}
+                            <div className="hidden lg:block text-center text-industrial-steel-500">
                                 <p className="font-mono uppercase tracking-wide text-sm">Select or Create a Session to Begin</p>
                             </div>
                         </div>
