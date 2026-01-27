@@ -437,7 +437,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         >
                             <div className="absolute top-0 left-0 w-full h-1 bg-industrial-steel-800 group-hover:bg-industrial-copper-500 transition-colors"></div>
                             <svg className="w-16 h-16 text-industrial-steel-600 mb-6 group-hover:text-industrial-copper-500 transition-colors group-hover:scale-110 duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
                             <span className="font-mono text-[10px] uppercase text-industrial-steel-500 mb-2 tracking-[0.2em]">Visual Input</span>
                             <span className="text-xl font-bold text-neutral-200">UPLOAD SKETCH</span>
@@ -924,7 +924,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
             <div className="flex flex-1 overflow-hidden">
                 {/* Minimal History Sidebar */}
-                <div className="w-64 border-r border-industrial-concrete bg-industrial-steel-900/50 hidden lg:block overflow-y-auto scanlines">
+                <div className={`w-full lg:w-64 border-r border-industrial-concrete bg-industrial-steel-900/50 overflow-y-auto scanlines ${selectedSession ? 'hidden lg:block' : 'block'}`}>
                     <div className="p-4">
                         <h2 className="text-[10px] font-bold text-industrial-steel-500 uppercase tracking-widest mb-4 font-mono">History</h2>
                         {sessions.length === 0 ? (
@@ -951,7 +951,17 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                 </div>
 
                 {/* Main Content */}
-                <div className="flex-1 bg-industrial-steel-950 overflow-y-auto relative">
+                <div className={`flex-1 bg-industrial-steel-950 overflow-y-auto relative ${!selectedSession ? 'hidden lg:block' : 'block'}`}>
+                    {selectedSession && (
+                        <div className="lg:hidden p-2 border-b border-industrial-concrete bg-industrial-steel-900/50">
+                            <button
+                                onClick={() => setSelectedSession(null)}
+                                className="flex items-center gap-2 text-industrial-copper-500 font-mono text-xs uppercase"
+                            >
+                                ← Back to Session List
+                            </button>
+                        </div>
+                    )}
                     {!selectedSession ? (
                         <div className="flex items-center justify-center h-full">
                             <div className="text-center text-industrial-steel-500">
