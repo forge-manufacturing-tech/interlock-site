@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { InitResponse } from '../models/InitResponse';
 import type { LoginParams } from '../models/LoginParams';
 import type { LoginResponse } from '../models/LoginResponse';
 import type { RegisterParams } from '../models/RegisterParams';
@@ -9,6 +10,16 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ControllersAuthService {
+    /**
+     * @returns InitResponse Check if system is initialized
+     * @throws ApiError
+     */
+    public static initialized(): CancelablePromise<InitResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/initialized',
+        });
+    }
     /**
      * Creates a user login and returns a token
      * @param requestBody

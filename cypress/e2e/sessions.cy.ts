@@ -8,11 +8,23 @@ describe('Sessions Management', () => {
         const email = `test-sessions-${Date.now()}@example.com`
         projectName = `Session Test Project ${Date.now()}`
 
+        const createToken = (payload: any) => {
+            const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+            const body = btoa(JSON.stringify(payload));
+            return `${header}.${body}.signature`;
+        };
+        const validToken = createToken({ email: 'test@example.com', name: 'Test User', role: 'user', sub: 'user-pid' });
+
         // Mocks
         cy.intercept('POST', '**/api/auth/register', {
             statusCode: 200,
-            body: { token: 'mock-token', name: 'Test User' }
+            body: { token: validToken, name: 'Test User' }
         }).as('register')
+
+        cy.intercept('POST', '**/api/auth/login', {
+            statusCode: 200,
+            body: { token: validToken, name: 'Test User' }
+        }).as('login')
 
         cy.intercept('GET', '**/api/projects', {
             statusCode: 200,

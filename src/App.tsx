@@ -5,6 +5,7 @@ import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { SessionsPage } from './pages/SessionsPage';
+import { AdminDashboard } from './pages/AdminDashboard';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const { token, isLoading } = useAuth();
@@ -18,6 +19,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     }
 
     return token ? <>{children}</> : <Navigate to="/login" />;
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+    const { token, user, isLoading } = useAuth();
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-industrial-steel-950 flex items-center justify-center metal-texture">
+                <div className="text-industrial-steel-400 font-mono uppercase tracking-wider">Loading...</div>
+            </div>
+        );
+    }
+
+    if (!token) return <Navigate to="/login" />;
+
+    if (user?.role !== 'admin') return <Navigate to="/dashboard" />;
+
+    return <>{children}</>;
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
@@ -68,6 +87,14 @@ function AppRoutes() {
                     <ProtectedRoute>
                         <SessionsPage />
                     </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/admin"
+                element={
+                    <AdminRoute>
+                        <AdminDashboard />
+                    </AdminRoute>
                 }
             />
         </Routes>
