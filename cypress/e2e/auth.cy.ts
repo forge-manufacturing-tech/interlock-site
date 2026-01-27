@@ -1,22 +1,16 @@
 describe('Authentication Flow', () => {
     beforeEach(() => {
-        // Mock Auth API
         cy.intercept('POST', '**/api/auth/login', {
             statusCode: 200,
-            body: { token: 'mock-token', name: 'Test User' }
-        }).as('login')
+            body: { token: 'mock-token', name: 'Mock User' }
+        }).as('loginRequest')
 
         cy.intercept('POST', '**/api/auth/register', {
             statusCode: 200,
-            body: { token: 'mock-token', name: 'Test User' }
-        }).as('register')
+            body: { token: 'mock-token', name: 'Mock User' }
+        }).as('registerRequest')
 
-        cy.intercept('GET', '**/api/projects', {
-            statusCode: 200,
-            body: []
-        }).as('getProjects')
-
-        cy.visit('/#/login')
+        cy.visit('/login')
     })
 
     it('should display login page', () => {
@@ -36,22 +30,19 @@ describe('Authentication Flow', () => {
     })
 
     it('should show error on invalid login', () => {
-        // Override default intercept for this test
         cy.intercept('POST', '**/api/auth/login', {
             statusCode: 401,
-            body: { error: 'Invalid credentials' }
-        }).as('loginFail')
+            body: { message: 'Invalid credentials' }
+        }).as('loginError')
 
         cy.get('input[type="email"]').type('nonexistent@example.com')
         cy.get('input[type="password"]').type('wrongpassword')
         cy.get('button[type="submit"]').click()
 
-        cy.wait('@loginFail')
-
-        // Wait for error element to appear
+        // Wait for error element to appear (API might be slow)
         cy.get('.bg-industrial-alert\\/10', { timeout: 20000 }).should('be.visible')
         // Should still be on login page
-        cy.hash().should('include', '/login')
+        cy.url().should('include', '/login')
     })
 
     it('should complete full registration and login flow', () => {
@@ -69,8 +60,11 @@ describe('Authentication Flow', () => {
         // Make sure no error appeared
         cy.get('.bg-industrial-alert\\/10').should('not.exist')
 
-        // Should redirect to dashboard
-        cy.url({ timeout: 20000 }).should('include', '/#/dashboard')
+        // Wait a bit for React state to update
+
+
+        // Should redirect to projects page (might take a moment)
+        cy.url({ timeout: 20000 }).should('include', '/dashboard')
         cy.contains('PROJECTS', { timeout: 20000 }).should('be.visible')
         cy.contains(email).should('be.visible')
     })

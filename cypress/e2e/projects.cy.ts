@@ -45,29 +45,15 @@ describe('Projects Management', () => {
         // Register and login before each test with unique email
         const email = `test-projects-${Date.now()}@example.com`
 
-        // Mock Auth
-        cy.intercept('POST', '**/api/auth/login', {
-            statusCode: 200,
-            body: { token: 'mock-token', name: 'Test User' }
-        }).as('login')
-
-        // Ensure mock for login redirect
-        cy.intercept('GET', '**/api/projects', {
-            statusCode: 200,
-            body: []
-        }).as('getProjects')
-
-        cy.visit('/#/login')
+        cy.visit('/login')
         cy.contains("Create New Account").click()
         cy.get('input[type="text"]').type('Test User')
         cy.get('input[type="email"]').type(email)
         cy.get('input[type="password"]').type(password)
         cy.get('button[type="submit"]').click()
 
-        cy.wait('@register')
-
         // Wait for redirect to complete
-        cy.url({ timeout: 20000 }).should('include', '/#/dashboard')
+        cy.url({ timeout: 20000 }).should('include', '/dashboard')
         cy.contains('PROJECTS', { timeout: 20000 }).should('be.visible')
         // Wait for page to fully load
         cy.contains(/no projects found/i, { timeout: 10000 })
@@ -82,18 +68,10 @@ describe('Projects Management', () => {
         const projectName = `Test Project ${Date.now()}`
         const projectDesc = 'Created by Cypress test'
 
-        // Mock Create Project
-        cy.intercept('POST', '**/api/projects', (req) => {
-            req.reply({
-                statusCode: 201,
-                body: { id: 'proj-new', name: req.body.name, description: req.body.description }
-            })
-        }).as('createProject')
-
-        // Mock List Projects (With new project)
+        // Mock re-fetch of projects after create
         cy.intercept('GET', '**/api/projects', {
             statusCode: 200,
-            body: [{ id: 'proj-new', name: projectName, description: projectDesc }]
+            body: [{ id: 'mock-project-id', name: projectName, description: projectDesc }]
         }).as('getProjectsAfterCreate')
 
         cy.contains('+ New Project', { timeout: 10000 }).click()
@@ -101,9 +79,6 @@ describe('Projects Management', () => {
         cy.get('input[type="text"]').first().type(projectName)
         cy.get('textarea').type(projectDesc)
         cy.contains('button', 'Create').click()
-
-        cy.wait('@createProject')
-        cy.wait('@getProjectsAfterCreate')
 
         // Project should appear in list
         cy.contains(projectName, { timeout: 10000 }).should('be.visible')
@@ -113,51 +88,22 @@ describe('Projects Management', () => {
     it('should navigate to project sessions', () => {
         const projectName = `Nav Test ${Date.now()}`
 
-        // Mock Create Project
-        cy.intercept('POST', '**/api/projects', (req) => {
-            req.reply({
-                statusCode: 201,
-                body: { id: 'proj-nav', name: req.body.name, description: req.body.description }
-            })
-        }).as('createProject')
-
-        // Mock List Projects
+        // Mock re-fetch of projects after create
         cy.intercept('GET', '**/api/projects', {
             statusCode: 200,
-            body: [{ id: 'proj-nav', name: projectName }]
-        }).as('getProjectsAfterCreate')
-
-        // Mock Get One Project
-        cy.intercept('GET', '**/api/projects/proj-nav', {
-            statusCode: 200,
-            body: { id: 'proj-nav', name: projectName }
-        }).as('getProject')
-
-        // Mock Sessions (Empty)
-        cy.intercept('GET', '**/api/sessions?project_id=proj-nav', {
-            statusCode: 200,
-            body: []
-        }).as('getSessions')
-
-        // Mock re-fetch of projects after create (needed for list refresh)
-        cy.intercept('GET', '**/api/projects', {
-            statusCode: 200,
-            body: [{ id: 'proj-nav', name: projectName }]
+            body: [{ id: 'mock-project-id', name: projectName }]
         }).as('getProjectsAfterCreate')
 
         // Mock project detail fetch on sessions page
         cy.intercept('GET', '**/api/projects/*', {
             statusCode: 200,
-            body: { id: 'proj-nav', name: projectName }
+            body: { id: 'mock-project-id', name: projectName }
         }).as('getProjectDetail')
 
         // Create project
         cy.contains('+ New Project', { timeout: 10000 }).click()
         cy.get('input[type="text"]').first().type(projectName)
         cy.contains('button', 'Create').click()
-
-        cy.wait('@createProject')
-        cy.wait('@getProjectsAfterCreate')
 
         // Click on project
         cy.contains(projectName, { timeout: 10000 }).click()

@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
@@ -103,10 +103,10 @@ function AppRoutes() {
 
 export function App() {
     return (
-        <HashRouter>
+        <BrowserRouter>
             <AuthProvider>
                 <AppRoutes />
             </AuthProvider>
-        </HashRouter>
+        </BrowserRouter>
     );
 }
