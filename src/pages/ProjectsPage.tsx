@@ -65,6 +65,14 @@ export function ProjectsPage() {
                 <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
                     <h1 className="industrial-headline text-2xl">INTERLOCK</h1>
                     <div className="flex items-center gap-4">
+                        {user?.role === 'admin' && (
+                            <button
+                                onClick={() => navigate('/admin')}
+                                className="text-sm text-industrial-copper-500 hover:text-industrial-copper-400 font-bold uppercase tracking-wider mr-4 transition-colors"
+                            >
+                                Admin Panel
+                            </button>
+                        )}
                         <span className="text-sm text-industrial-steel-400 font-mono">{user?.email}</span>
                         <button
                             onClick={logout}

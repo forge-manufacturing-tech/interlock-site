@@ -5,6 +5,8 @@ import { OpenAPI } from '../api/generated/core/OpenAPI';
 interface User {
     email: string;
     name: string;
+    role?: string;
+    pid?: string;
 }
 
 interface AuthContextType {
@@ -18,14 +20,37 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function parseJwt(token: string) {
+    try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+
+        return JSON.parse(jsonPayload);
+    } catch (e) {
+        return null;
+    }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<User | null>(() => {
-        // Initialize from localStorage if exists
-        const token = localStorage.getItem('token');
-        return token ? { email: '', name: '' } : null;  // Placeholder until we have /current endpoint
-    });
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-    const [isLoading] = useState(false);  // Changed to false since we don't fetch on mount
+    const [user, setUser] = useState<User | null>(() => {
+        const storedToken = localStorage.getItem('token');
+        if (storedToken) {
+             const decoded = parseJwt(storedToken);
+             return decoded ? {
+                 email: decoded.email || '',
+                 name: decoded.name || '',
+                 role: decoded.role || 'user',
+                 pid: decoded.pid || decoded.sub || ''
+             } : { email: '', name: '' };
+        }
+        return null;
+    });
+
+    const [isLoading] = useState(false);
 
     useEffect(() => {
         if (token) {
@@ -38,27 +63,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const login = async (email: string, password: string) => {
         const response = await ControllersAuthService.login({ email, password });
         const newToken = response.token;
-        const newUser = { email, name: response.name };
+        const decoded = parseJwt(newToken);
+
+        const newUser = {
+            email,
+            name: response.name,
+            pid: response.pid,
+            role: decoded?.role || 'user'
+        };
 
         localStorage.setItem('token', newToken);
         OpenAPI.TOKEN = newToken;
 
-        // Update both states together
         setUser(newUser);
         setToken(newToken);
     };
 
     const register = async (email: string, password: string, name: string) => {
-        const response = await ControllersAuthService.register({ email, password, name });
-        const newToken = response.token;
-        const newUser = { email, name: response.name };
-
-        localStorage.setItem('token', newToken);
-        OpenAPI.TOKEN = newToken;
-
-        // Update both states together
-        setUser(newUser);
-        setToken(newToken);
+        await ControllersAuthService.register({ email, password, name });
+        // The new spec implies register does not return a token, so we login.
+        await login(email, password);
     };
 
     const logout = () => {
