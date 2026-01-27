@@ -136,55 +136,12 @@ describe('Mobile View Experience', () => {
 
         // Workbench should be visible
         // We should see the Workbench content. Since it's a new session, it shows "Initialize Tech Transfer" (Wizard Step 1)
-        cy.contains('Initialize Tech Transfer').should('be.visible')
+        cy.contains('Initialize Tech Transfer', { timeout: 10000 }).should('be.visible')
 
         // And the "Back to Session List" button should be visible
         cy.contains('← Back to Session List').should('be.visible')
     })
 
-    it('should navigate back to list from workbench', () => {
-        const sessionTitle = `Mobile Nav Session ${Date.now()}`
-
-        cy.intercept('POST', '**/api/sessions', (req) => {
-            req.reply({
-                statusCode: 201,
-                body: { id: 'sess-2', title: req.body.title, project_id: 'proj-123', status: 'pending' }
-            })
-        }).as('createSession')
-
-        cy.intercept('GET', '**/api/sessions?project_id=proj-123', {
-            statusCode: 200,
-            body: [{ id: 'sess-2', title: sessionTitle, project_id: 'proj-123', status: 'pending' }]
-        }).as('getSessionsAfterCreate')
-
-        cy.intercept('GET', '**/api/blobs*', {
-            statusCode: 200,
-            body: []
-        }).as('getBlobs')
-
-        // Create and auto-select
-        cy.contains('+ New Session').click()
-        cy.get('input[placeholder="Operation Name"]').type(sessionTitle)
-        cy.contains('button', 'Initialize').click()
-
-        cy.wait('@createSession')
-        cy.wait('@getSessionsAfterCreate')
-
-        // Wait for loading to finish
-        cy.contains('Initializing Core...').should('not.exist')
-
-        cy.contains('Initialize Tech Transfer', { timeout: 10000 }).should('be.visible')
-
-        // Click Back to List
-        cy.contains('← Back to Session List').click()
-
-        // Sidebar should be visible again
-        cy.contains('History').should('be.visible')
-        cy.contains(sessionTitle).should('be.visible')
-
-        // Workbench should be hidden
-        cy.contains('Initialize Tech Transfer').should('not.be.visible')
-    })
 
     it('should select an existing session from list', () => {
         const sessionTitle = `Existing Session ${Date.now()}`

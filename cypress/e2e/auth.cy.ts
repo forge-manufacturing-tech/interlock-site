@@ -1,5 +1,21 @@
 describe('Authentication Flow', () => {
     beforeEach(() => {
+        // Mock Auth API
+        cy.intercept('POST', '**/api/auth/login', {
+            statusCode: 200,
+            body: { token: 'mock-token', name: 'Test User' }
+        }).as('login')
+
+        cy.intercept('POST', '**/api/auth/register', {
+            statusCode: 200,
+            body: { token: 'mock-token', name: 'Test User' }
+        }).as('register')
+
+        cy.intercept('GET', '**/api/projects', {
+            statusCode: 200,
+            body: []
+        }).as('getProjects')
+
         cy.visit('/#/login')
     })
 
@@ -20,11 +36,19 @@ describe('Authentication Flow', () => {
     })
 
     it('should show error on invalid login', () => {
+        // Override default intercept for this test
+        cy.intercept('POST', '**/api/auth/login', {
+            statusCode: 401,
+            body: { error: 'Invalid credentials' }
+        }).as('loginFail')
+
         cy.get('input[type="email"]').type('nonexistent@example.com')
         cy.get('input[type="password"]').type('wrongpassword')
         cy.get('button[type="submit"]').click()
 
-        // Wait for error element to appear (API might be slow)
+        cy.wait('@loginFail')
+
+        // Wait for error element to appear
         cy.get('.bg-industrial-alert\\/10', { timeout: 20000 }).should('be.visible')
         // Should still be on login page
         cy.hash().should('include', '/login')
