@@ -28,8 +28,8 @@ describe('Sessions Management', () => {
 
         // Wait for sessions page to load
         cy.url({ timeout: 10000 }).should('include', '/projects/')
-        // Verify we are on the BOM Converter page
-        cy.contains('BOM CONVERTER', { timeout: 10000 }).should('be.visible')
+        // Verify we are on the Tech Transfer page
+        cy.contains('TECH TRANSFER SUITE', { timeout: 10000 }).should('be.visible')
     })
 
     it('should display empty sessions sidebar', () => {
@@ -60,7 +60,7 @@ describe('Sessions Management', () => {
         cy.contains(sessionTitle, { timeout: 10000 }).click()
 
         // Should display the empty state upload bucket
-        cy.contains('Upload Source BOM').should('be.visible')
+        cy.contains('Upload Technical Documents').should('be.visible')
     })
 
     it('should navigate back to projects', () => {

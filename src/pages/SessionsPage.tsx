@@ -14,7 +14,6 @@ export function SessionsPage() {
 
     // BOM Converter State
     const [blobs, setBlobs] = useState<BlobResponse[]>([]);
-    const [blobsLoading, setBlobsLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [messages, setMessages] = useState<MessageResponse[]>([]);
     const [processing, setProcessing] = useState(false);
@@ -69,7 +68,7 @@ export function SessionsPage() {
 
     const loadSessionData = async (sessionId: string) => {
         try {
-            setBlobsLoading(true);
+
             const [blobsData, messagesData] = await Promise.all([
                 ControllersBlobsService.list(sessionId),
                 ControllersChatService.listMessages(sessionId)
@@ -82,7 +81,7 @@ export function SessionsPage() {
         } catch (error) {
             console.error('Failed to load session data:', error);
         } finally {
-            setBlobsLoading(false);
+
         }
     };
 
@@ -121,14 +120,15 @@ export function SessionsPage() {
         setSystemLogOpen(true);
 
         const prompt = `
-[SYSTEM: BOM_CONVERSION_REQUEST]
-TARGET_COLUMNS: ${targetColumns}
-INSTRUCTION: 
-1. Analyze the uploaded BOM file(s).
-2. Create a standardized Excel/CSV file containing exactly the target columns.
-3. Map existing data to these columns. If data is missing, mark as "N/A" or intelligently infer.
-4. If ambiguous, ask for clarification.
-5. Return the file when ready.
+[SYSTEM: TECH_TRANSFER_REQUEST]
+GOAL: ${targetColumns}
+INSTRUCTION:
+1. Analyze the uploaded technical file(s) (BOMs, SOPs, etc).
+2. Achieve the user's goal (e.g. creating documents, diagrams, or standardized lists).
+3. Use available tools to read files and create new ones.
+4. If a Process Flow Diagram is requested, provide the Mermaid code or description in the output.
+5. Use the 'generate_image' tool liberally to create visual aids, diagrams, or illustrations of the process if helpful.
+6. Return the result files when ready.
 `;
 
         try {
@@ -209,14 +209,14 @@ INSTRUCTION:
             <svg className="w-24 h-24 text-industrial-steel-600 mb-6 group-hover:text-industrial-copper-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            <h3 className="industrial-headline text-2xl mb-2 text-center">Upload Source BOM</h3>
+            <h3 className="industrial-headline text-2xl mb-2 text-center">Upload Technical Documents</h3>
             <p className="text-industrial-steel-400 font-mono text-sm mb-8 text-center max-w-md">
-                Initialize session by uploading your raw materials list.
-                Supported formats: .xlsx, .csv, .pdf
+                Initialize session by uploading source files (BOMs, SOPs, Reports).
+                Supported formats: .xlsx, .csv, .pdf, .docx, .txt
             </p>
             <label className="industrial-btn px-8 py-3 cursor-pointer">
                 <span>Select File</span>
-                <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+                <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} multiple />
             </label>
             {uploading && <div className="mt-4 text-industrial-copper-500 font-mono text-xs uppercase animate-pulse">Uploading...</div>}
         </div>
@@ -228,7 +228,7 @@ INSTRUCTION:
                 {/* Top Section: Control Panel */}
                 <div className="industrial-panel p-8 rounded-sm relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-                        <div className="text-[120px] font-black font-mono leading-none">BOM</div>
+                        <div className="text-[80px] font-black font-mono leading-none">TRANSFER</div>
                     </div>
 
                     <div className="flex flex-col md:flex-row gap-8 items-start relative z-10">
@@ -254,22 +254,22 @@ INSTRUCTION:
                                 ))}
                                 <label className="flex items-center justify-center p-3 border border-dashed border-industrial-concrete hover:border-industrial-copper-500/50 rounded-sm cursor-pointer transition-colors group">
                                     <span className="text-xs font-mono text-industrial-steel-500 group-hover:text-industrial-copper-500 uppercase">+ Add Source File</span>
-                                    <input type="file" className="hidden" onChange={handleFileUpload} />
+                                    <input type="file" className="hidden" onChange={handleFileUpload} multiple />
                                 </label>
                             </div>
                         </div>
 
                         {/* Configuration */}
                         <div className="flex-1 w-full border-l border-industrial-concrete md:pl-8">
-                            <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest mb-4 font-mono">Target Spec</h3>
+                            <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest mb-4 font-mono">Process Goal</h3>
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-[10px] text-industrial-steel-500 font-mono uppercase mb-1">Required Columns</label>
+                                    <label className="block text-[10px] text-industrial-steel-500 font-mono uppercase mb-1">Requirements / Target</label>
                                     <textarea
                                         value={targetColumns}
                                         onChange={(e) => setTargetColumns(e.target.value)}
                                         className="w-full h-24 industrial-input p-3 text-sm rounded-sm resize-none"
-                                        placeholder="Comma separated list of columns..."
+                                        placeholder="Describe the desired output (e.g. 'Create a Process Flow Diagram and a standardized BOM with columns: Part, Qty')..."
                                     />
                                 </div>
                                 <button
@@ -283,7 +283,7 @@ INSTRUCTION:
                                         </>
                                     ) : (
                                         <>
-                                            <span className="text-lg">⚡</span> INITIALIZE CONVERSION
+                                            <span className="text-lg">⚡</span> EXECUTE TECH TRANSFER
                                         </>
                                     )}
                                 </button>
@@ -372,7 +372,7 @@ INSTRUCTION:
                 <div className="px-6 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <button onClick={() => navigate('/')} className="text-industrial-steel-400 hover:text-industrial-copper-500 transition-colors font-mono text-sm uppercase">← Back</button>
-                        <h1 className="industrial-headline text-xl">{project?.name} <span className="text-industrial-steel-600 mx-2">//</span> BOM CONVERTER</h1>
+                        <h1 className="industrial-headline text-xl">{project?.name} <span className="text-industrial-steel-600 mx-2">//</span> TECH TRANSFER SUITE</h1>
                     </div>
                     <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 industrial-btn rounded-sm text-xs">+ New Session</button>
                 </div>
