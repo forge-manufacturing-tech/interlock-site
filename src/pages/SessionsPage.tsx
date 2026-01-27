@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ControllersSessionsService, ControllersProjectsService, ControllersChatService, ControllersBlobsService, SessionResponse, ProjectResponse, BlobResponse, MessageResponse } from '../api/generated';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,17 +12,102 @@ export function SessionsPage() {
     const [newSessionTitle, setNewSessionTitle] = useState('');
     const [selectedSession, setSelectedSession] = useState<SessionResponse | null>(null);
 
-    // BOM Converter State
+    // State
     const [blobs, setBlobs] = useState<BlobResponse[]>([]);
     const [uploading, setUploading] = useState(false);
     const [messages, setMessages] = useState<MessageResponse[]>([]);
     const [processing, setProcessing] = useState(false);
+    const [processingStatus, setProcessingStatus] = useState('');
+    const [wizardStep, setWizardStep] = useState(1);
+    const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
     const [targetColumns, setTargetColumns] = useState('Part Number, Description, Quantity, Manufacturer, Price');
-    const [systemLogOpen, setSystemLogOpen] = useState(false);
+
+    const DOC_TYPES = [
+        "Production",
+        "Pilot Runs",
+        "Installation & Testing",
+        "Process Development",
+        "Design for manufacturing",
+        "Review & Capabilities Analysis",
+        "Visual Aids"
+    ];
+
+    const DOC_PROMPTS: Record<string, string> = {
+        "Production": `
+[SYSTEM: DOC_GENERATION]
+Generate a "Mass_Production_Plan.docx".
+CRITICAL: This is a manufacturing execution plan.
+SECTIONS:
+- Scaling Strategy: Transition from pilot to mass production.
+- Quality Control Points: Specific inspection criteria for high volume.
+- Line Balancing: Takt time analysis and station assignments.
+- Supply Chain: Bulk material handling and logistics.
+`,
+        "Pilot Runs": `
+[SYSTEM: DOC_GENERATION]
+Generate a "Pilot_Run_Report.docx".
+CRITICAL: Focus on validation and initial data gathering.
+SECTIONS:
+- Pilot Objectives: What are we trying to prove? (Yield, speed, quality).
+- Batch Configuration: Setups used for the pilot.
+- Measurement Plan: Key metrics to track during the run.
+- Failure Mode Prediction: What is likely to go wrong and how to monitor it.
+`,
+        "Installation & Testing": `
+[SYSTEM: DOC_GENERATION]
+Generate an "Installation_and_SAT_Protocol.docx".
+CRITICAL: Field work instructions.
+SECTIONS:
+- Site Prep: Power, air, floor space requirements.
+- Rigging & Handling: How to move the equipment.
+- IQ/OQ/PQ Protocols: Detailed steps for acceptance testing.
+- Safety Lockout/Tagout procedures specific to this machine.
+`,
+        "Process Development": `
+[SYSTEM: DOC_GENERATION]
+Generate a "Process_Development_Study.docx".
+CRITICAL: Engineering parameter optimization.
+SECTIONS:
+- DOE (Design of Experiments) Setup: Variables tested (Temp, Pressure, Speed).
+- Process Window: Upper and lower control limits.
+- Optimization Results: Theoretical best settings.
+- Material Interaction Analysis.
+`,
+        "Design for manufacturing": `
+[SYSTEM: DOC_GENERATION]
+Generate a "DFM_Analysis_Report.docx".
+CRITICAL: Design critique for cost and ease of assembly.
+SECTIONS:
+- Tolerance Analysis: Are specs achievable?
+- Part Simplification: Opportunities to combine or remove parts.
+- Material Selection: Cost vs Performance trade-offs.
+- Assembly Access: Tool clearance and ergonomic review.
+`,
+        "Review & Capabilities Analysis": `
+[SYSTEM: DOC_GENERATION]
+Generate a "Capabilities_Gap_Analysis.docx".
+CRITICAL: Vendor vs Requirement match.
+SECTIONS:
+- Requirement Matrix: Detailed breakdown of specs vs current vendor capabilities.
+- Gap Identification: Where do we fall short?
+- Risk Assessment: Scoring of identified gaps.
+- Correction Plan: Steps to close the gaps (Training, new equipment, outsourcing).
+`,
+        "Visual Aids": `
+[SYSTEM: VISUAL_GENERATION]
+INSTRUCTION: Use the 'generate_image' tool to create 3 distinct technical diagrams.
+1. "assembly_exploded_view.png": An exploded view showing part relationships.
+2. "process_flow_diagram.png": A block diagram of the manufacturing process steps.
+3. "finished_product_render.png": High-fidelity photorealistic render of the final output.
+Ensure these are high-resolution and technical in style (blueprint or clean CAD style).
+`
+    };
+
+    // CSV Data State
+    const [csvData, setCsvData] = useState<Record<string, string[][]>>({});
 
     const { logout } = useAuth();
     const navigate = useNavigate();
-    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Initial Load
     useEffect(() => {
@@ -35,18 +120,43 @@ export function SessionsPage() {
     useEffect(() => {
         if (selectedSession) {
             loadSessionData(selectedSession.id);
+            // If already processing, start polling
+            if ((selectedSession as any).status === 'processing') {
+                startPolling(selectedSession.id);
+            } else if ((selectedSession as any).status === 'completed') {
+                setWizardStep(4);
+            } else {
+                setWizardStep(1);
+            }
         } else {
             setBlobs([]);
             setMessages([]);
+            setCsvData({});
+            setWizardStep(1);
         }
-    }, [selectedSession]);
+    }, [selectedSession?.id]); // Use ID to avoid re-triggering when status changes via setPoll
 
-    // Scroll Log
+
+
+    // Load CSV Content
     useEffect(() => {
-        if (messagesEndRef.current && systemLogOpen) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-    }, [messages, systemLogOpen]);
+        blobs.forEach(blob => {
+            const isCsv = blob.content_type === 'text/csv' || blob.file_name.toLowerCase().endsWith('.csv');
+            if (isCsv && !csvData[blob.id]) {
+                const token = localStorage.getItem('token');
+                fetch(`${import.meta.env.VITE_API_URL}/api/blobs/${blob.id}/download`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+                    .then(res => res.text())
+                    .then(text => {
+                        // Simple CSV Parse
+                        const rows = text.split('\n').map(row => row.split(','));
+                        setCsvData(prev => ({ ...prev, [blob.id]: rows }));
+                    })
+                    .catch(err => console.error('Failed to load CSV', err));
+            }
+        });
+    }, [blobs, csvData]);
 
     const loadProjectAndSessions = async () => {
         if (!projectId) return;
@@ -68,20 +178,14 @@ export function SessionsPage() {
 
     const loadSessionData = async (sessionId: string) => {
         try {
-
             const [blobsData, messagesData] = await Promise.all([
                 ControllersBlobsService.list(sessionId),
                 ControllersChatService.listMessages(sessionId)
             ]);
             setBlobs(blobsData);
             setMessages(messagesData);
-
-            // Auto-open log if there are messages but no result file yet? 
-            // Or just if actively processing.
         } catch (error) {
             console.error('Failed to load session data:', error);
-        } finally {
-
         }
     };
 
@@ -113,71 +217,177 @@ export function SessionsPage() {
         }
     };
 
-    const handleConvert = async () => {
-        if (!selectedSession || processing) return;
+    const sendMessageAndPoll = async (message: string) => {
+        if (!selectedSession) return;
 
-        setProcessing(true);
-        setSystemLogOpen(true);
+        // Optimistic update
+        const tempMsg: MessageResponse = {
+            id: crypto.randomUUID(),
+            session_id: selectedSession.id,
+            role: 'user',
+            content: message,
+            created_at: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, tempMsg]);
 
-        const prompt = `
-[SYSTEM: TECH_TRANSFER_REQUEST]
-GOAL: ${targetColumns}
-INSTRUCTION:
-1. Analyze the uploaded technical file(s) (BOMs, SOPs, etc).
-2. Achieve the user's goal (e.g. creating documents, diagrams, or standardized lists).
-3. Use available tools to read files and create new ones.
-4. If a Process Flow Diagram is requested, provide the Mermaid code or description in the output.
-5. Use the 'generate_image' tool liberally to create visual aids, diagrams, or illustrations of the process if helpful.
-6. Return the result files when ready.
-`;
+        await ControllersChatService.chat(selectedSession.id, { message });
 
+        // Refresh messages after chat (agent runs in a cycle there)
+        const newMessages = await ControllersChatService.listMessages(selectedSession.id);
+        setMessages(newMessages);
+    };
+
+    const handleCancel = async () => {
+        if (!selectedSession) return;
+        const token = localStorage.getItem('token');
         try {
-            // Optimistic update
-            const tempMsg: MessageResponse = {
-                id: crypto.randomUUID(),
-                session_id: selectedSession.id,
-                role: 'user',
-                content: prompt,
-                created_at: new Date().toISOString()
-            };
-            setMessages(prev => [...prev, tempMsg]);
-
-            await ControllersChatService.chat(selectedSession.id, { message: prompt });
-
-            // Poll for response (Simple implementation for now)
-            await pollForResponse(selectedSession.id);
-
+            await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${selectedSession.id}/cancel`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            // Status will be updated on next poll
         } catch (error) {
-            console.error('Conversion trigger failed:', error);
-            alert('Failed to start conversion');
-        } finally {
-            setProcessing(false);
+            console.error('Failed to cancel:', error);
         }
     };
 
-    const pollForResponse = async (sessionId: string) => {
-        // Poll a few times to get the AI response and any new files
-        // In a real app, use websockets or longer polling
+    const handleRetry = async () => {
+        if (!selectedSession) return;
+        const token = localStorage.getItem('token');
+        try {
+            await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${selectedSession.id}/retry`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            startPolling(selectedSession.id);
+        } catch (error) {
+            console.error('Failed to retry:', error);
+        }
+    };
+
+    const handleConvert = async () => {
+        if (!selectedSession || (selectedSession as any).status === 'processing' || processing) return;
+        const token = localStorage.getItem('token');
+
+        setProcessing(true);
+        setWizardStep(3); // Show processing state
+
+        // 1. Prepare Prompts
+        const prompts: string[] = [];
+
+        // Core Analysis
+        const basePrompt = `
+[SYSTEM: TECH_TRANSFER_INIT]
+GOAL: ${targetColumns}
+INSTRUCTION:
+1. Analyze the uploaded technical file(s).
+2. Create a 'BOM_Standardized.xlsx' with columns: ${targetColumns}.
+3. Create a 'data_summary.csv' of the main parts list.
+4. Extract key technical parameters.
+`;
+        prompts.push(basePrompt);
+
+        // Selected Documents
+        for (const docType of selectedDocs) {
+            const specificInstruction = DOC_PROMPTS[docType] || `[SYSTEM: DOC_GENERATION] Generate a detailed report for ${docType}.`;
+            const docPrompt = `
+${specificInstruction}
+
+CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
+1. Create a "FULL, DETAILED PROFESSIONAL REPORT" (3-4 pages min).
+2. DO NOT use placeholders. Approximate values based on context.
+3. Use professional formatting (headers, bullet points).
+`;
+            prompts.push(docPrompt);
+        }
+
+        // Final Wrap Up
+        prompts.push("Generate a 'Summary_Report.docx' listing all generated assets and next steps.");
+
+        try {
+            // 2. Submit Queue
+            setProcessingStatus("Initiating Batch Process...");
+
+            const queueRes = await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${selectedSession.id}/queue`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ tasks: prompts })
+            });
+
+            if (!queueRes.ok) throw new Error("Failed to queue tasks");
+
+            // 3. Start Polling
+            startPolling(selectedSession.id, prompts.length);
+
+        } catch (error) {
+            console.error('Conversion failed:', error);
+            alert('Failed to complete conversion sequence');
+            setProcessing(false);
+            setProcessingStatus('');
+        }
+    };
+
+    const startPolling = async (sessionId: string, totalTasksCount?: number) => {
+        const token = localStorage.getItem('token');
         let attempts = 0;
-        const maxAttempts = 10;
+        const maxAttempts = 900;
+
+        setProcessing(true);
+        setWizardStep(3);
 
         while (attempts < maxAttempts) {
-            await new Promise(r => setTimeout(r, 2000));
-            const [newMessages, newBlobs] = await Promise.all([
-                ControllersChatService.listMessages(sessionId),
-                ControllersBlobsService.list(sessionId)
-            ]);
+            try {
+                const [sessionData, newMessages, newBlobs] = await Promise.all([
+                    fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${sessionId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    }).then(r => r.json()),
+                    ControllersChatService.listMessages(sessionId),
+                    ControllersBlobsService.list(sessionId)
+                ]);
 
-            setMessages(newMessages);
-            setBlobs(newBlobs);
+                setMessages(newMessages);
+                setBlobs(newBlobs);
 
-            // If AI has responded (last message is assistant), we can stop "hard" polling
-            // But we might want to continue if it's a multi-step thing.
-            const lastMsg = newMessages[newMessages.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-                break;
+                // Update selected session with newest data
+                setSelectedSession(sessionData);
+
+                const status = (sessionData as any).status;
+                const pendingCount = (sessionData as any).pending_tasks?.length || 0;
+
+                if (status === 'completed') {
+                    setProcessingStatus("Completed.");
+                    setProcessing(false);
+                    setWizardStep(4);
+                    break;
+                } else if (status === 'cancelled') {
+                    setProcessingStatus("Process Cancelled.");
+                    setProcessing(false);
+                    setWizardStep(2); // Back to deliverables
+                    break;
+                } else if (status === 'error') {
+                    setProcessingStatus("Execution Error.");
+                    setProcessing(false);
+                    setWizardStep(2);
+                    break;
+                }
+
+                // Estimate progress
+                if (totalTasksCount) {
+                    const done = totalTasksCount - pendingCount;
+                    setProcessingStatus(`Processing: ${done}/${totalTasksCount} tasks completed...`);
+                } else {
+                    setProcessingStatus(`Processing... ${pendingCount} tasks remaining`);
+                }
+
+                attempts++;
+                await new Promise(r => setTimeout(r, 2000));
+            } catch (e) {
+                console.error("Polling error:", e);
+                await new Promise(r => setTimeout(r, 5000));
             }
-            attempts++;
         }
     };
 
@@ -202,8 +412,6 @@ INSTRUCTION:
         }
     };
 
-    // --- Renders ---
-
     const renderEmptyState = () => (
         <div className="flex flex-col items-center justify-center h-full p-12 border-2 border-dashed border-industrial-concrete bg-industrial-steel-900/20 rounded-sm group hover:border-industrial-copper-500/50 transition-colors">
             <svg className="w-24 h-24 text-industrial-steel-600 mb-6 group-hover:text-industrial-copper-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -223,20 +431,163 @@ INSTRUCTION:
     );
 
     const renderWorkbench = () => {
+        const images = blobs.filter(b => b.content_type.startsWith('image/') || b.file_name.toLowerCase().endsWith('.png') || b.file_name.toLowerCase().endsWith('.jpg'));
+        const documents = blobs.filter(b =>
+            b.content_type === 'application/pdf' ||
+            b.file_name.toLowerCase().endsWith('.pdf') ||
+            b.content_type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+            b.file_name.toLowerCase().endsWith('.docx')
+        );
+        const csvs = blobs.filter(b => b.content_type === 'text/csv' || b.file_name.toLowerCase().endsWith('.csv'));
+        const others = blobs.filter(b => !images.includes(b) && !documents.includes(b) && !csvs.includes(b));
+
+        const getToken = () => localStorage.getItem('token');
+
         return (
-            <div className="flex flex-col h-full max-w-5xl mx-auto w-full p-8 gap-8">
-                {/* Top Section: Control Panel */}
-                <div className="industrial-panel p-8 rounded-sm relative overflow-hidden">
+            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6">
+
+                {/* 1. Results Preview Section (Top for visibility) */}
+                {(images.length > 0 || documents.length > 0 || csvs.length > 0) && (
+                    <div className="industrial-panel p-6 rounded-sm">
+                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-6 font-mono flex items-center gap-2">
+                            <span className="animate-pulse">●</span> Generator Output
+                        </h3>
+
+                        {/* Images Grid */}
+                        {images.length > 0 && (
+                            <div className="mb-8">
+                                <h4 className="text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Visualizations</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    {images.map(img => (
+                                        <div key={img.id} className="relative group border border-industrial-concrete bg-black/20 rounded-sm overflow-hidden">
+                                            <img
+                                                src={`${import.meta.env.VITE_API_URL}/api/blobs/${img.id}/download?token=${getToken()}`} // Note: In real app, might need a better way to pass token for img src if not cookie-based
+                                                /* If token is header-only, direct src won't work easily w/o a proxy or signed URL. 
+                                                   For this demo, assuming standard download route works or we fetch blob url.
+                                                   Better check: fetch blob and create object URL. */
+                                                className="w-full h-48 object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                                                alt={img.file_name}
+                                                // Fallback to fetch-based load if Auth header needed (implemented below)
+                                                onError={(e) => {
+                                                    const target = e.target as HTMLImageElement;
+                                                    fetch(`${import.meta.env.VITE_API_URL}/api/blobs/${img.id}/download`, { headers: { 'Authorization': `Bearer ${getToken()}` } })
+                                                        .then(r => r.blob())
+                                                        .then(b => target.src = URL.createObjectURL(b));
+                                                }}
+                                            />
+                                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-black/70 text-[10px] font-mono text-white truncate">
+                                                {img.file_name}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* CSV Tables */}
+                        {csvs.length > 0 && (
+                            <div className="mb-8">
+                                <h4 className="text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Data Tables</h4>
+                                <div className="space-y-4">
+                                    {csvs.map(csv => (
+                                        <div key={csv.id} className="border border-industrial-concrete bg-industrial-steel-900/50 rounded-sm overflow-hidden">
+                                            <div className="bg-industrial-steel-800/50 px-3 py-1 flex justify-between items-center border-b border-industrial-concrete">
+                                                <span className="text-[10px] font-mono font-bold text-industrial-steel-300">{csv.file_name}</span>
+                                                <button onClick={() => handleDownload(csv)} className="text-[10px] text-industrial-copper-500 hover:underline">Download CSV</button>
+                                            </div>
+                                            <div className="overflow-x-auto custom-scrollbar max-h-60">
+                                                <table className="w-full text-xs font-mono text-left">
+                                                    <thead>
+                                                        {csvData[csv.id]?.[0]?.map((header, i) => (
+                                                            <th key={i} className="bg-industrial-steel-950 p-2 border-b border-industrial-concrete text-industrial-steel-400 whitespace-nowrap">{header}</th>
+                                                        ))}
+                                                    </thead>
+                                                    <tbody>
+                                                        {csvData[csv.id]?.slice(1).map((row, i) => (
+                                                            <tr key={i} className="border-b border-industrial-concrete/20 hover:bg-white/5">
+                                                                {row.map((cell, j) => (
+                                                                    <td key={j} className="p-2 border-r border-industrial-concrete/20 last:border-0 whitespace-nowrap text-industrial-steel-300">{cell}</td>
+                                                                ))}
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Documents (PDF & Word) */}
+                        {documents.length > 0 && (
+                            <div className="mb-8">
+                                <h4 className="text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Documentation</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {documents.map(doc => {
+                                        const isPdf = doc.content_type === 'application/pdf' || doc.file_name.toLowerCase().endsWith('.pdf');
+                                        return (
+                                            <div key={doc.id} className="border border-industrial-concrete bg-industrial-steel-900/50 flex flex-col h-96 relative group">
+                                                <div className="bg-industrial-steel-800/50 px-3 py-1 flex justify-between items-center border-b border-industrial-concrete">
+                                                    <span className="text-[10px] font-mono font-bold text-industrial-steel-300 truncate max-w-[200px]">{doc.file_name}</span>
+                                                    <button onClick={() => handleDownload(doc)} className="text-[10px] text-industrial-copper-500 hover:underline">Download</button>
+                                                </div>
+
+                                                {isPdf ? (
+                                                    <iframe
+                                                        src={`${import.meta.env.VITE_API_URL}/api/blobs/${doc.id}/download?token=${getToken()}`}
+                                                        className="w-full flex-1"
+                                                        title={doc.file_name}
+                                                        onLoad={(e) => {
+                                                            const iframe = e.target as HTMLIFrameElement;
+                                                            if (!iframe.src || iframe.src === 'about:blank') {
+                                                                fetch(`${import.meta.env.VITE_API_URL}/api/blobs/${doc.id}/download`, { headers: { 'Authorization': `Bearer ${getToken()}` } })
+                                                                    .then(r => r.blob())
+                                                                    .then(b => iframe.src = URL.createObjectURL(b));
+                                                            }
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-industrial-steel-950/30">
+                                                        <div className="w-16 h-16 rounded bg-blue-900/20 flex items-center justify-center border border-blue-500/30">
+                                                            <span className="text-2xl">W</span>
+                                                        </div>
+                                                        <div className="text-center px-4">
+                                                            <p className="text-xs text-industrial-steel-400 font-mono mb-2">Word Document Preview Unavailable</p>
+                                                            <button
+                                                                onClick={() => handleDownload(doc)}
+                                                                className="px-4 py-2 bg-industrial-steel-800 hover:bg-industrial-steel-700 border border-industrial-concrete rounded-sm text-xs text-industrial-copper-500 font-mono"
+                                                            >
+                                                                Download to View
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                    </div>
+                )}
+
+
+                {/* 2. Control & Input Panel */}
+                <div className="industrial-panel p-6 rounded-sm relative overflow-hidden">
+                    {/* ... (Existing Control Panel Content) ... */}
                     <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
                         <div className="text-[80px] font-black font-mono leading-none">TRANSFER</div>
                     </div>
 
                     <div className="flex flex-col md:flex-row gap-8 items-start relative z-10">
-                        {/* Source Files List */}
+                        {/* Source Files List (Filtered to Others/Inputs) */}
                         <div className="flex-1 w-full">
-                            <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest mb-4 font-mono">Input Sources</h3>
+                            <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest mb-4 font-mono">Raw Input Files</h3>
                             <div className="space-y-2 mb-4">
-                                {blobs.map(blob => (
+                                {others.length === 0 && <div className="text-xs text-industrial-steel-600 italic">No raw documents found.</div>}
+                                {others.map(blob => (
                                     <div key={blob.id} className="flex items-center justify-between p-3 bg-industrial-steel-950/50 border border-industrial-concrete rounded-sm">
                                         <div className="flex items-center gap-3">
                                             <svg className="w-5 h-5 text-industrial-copper-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -252,107 +603,186 @@ INSTRUCTION:
                                         </button>
                                     </div>
                                 ))}
-                                <label className="flex items-center justify-center p-3 border border-dashed border-industrial-concrete hover:border-industrial-copper-500/50 rounded-sm cursor-pointer transition-colors group">
+                                <label className="flex items-center justify-center p-3 border border-dashed border-industrial-concrete hover:border-industrial-copper-500/50 rounded-sm cursor-pointer transition-colors group mt-2">
                                     <span className="text-xs font-mono text-industrial-steel-500 group-hover:text-industrial-copper-500 uppercase">+ Add Source File</span>
                                     <input type="file" className="hidden" onChange={handleFileUpload} multiple />
                                 </label>
                             </div>
                         </div>
 
-                        {/* Configuration */}
-                        <div className="flex-1 w-full border-l border-industrial-concrete md:pl-8">
-                            <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest mb-4 font-mono">Process Goal</h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-[10px] text-industrial-steel-500 font-mono uppercase mb-1">Requirements / Target</label>
-                                    <textarea
-                                        value={targetColumns}
-                                        onChange={(e) => setTargetColumns(e.target.value)}
-                                        className="w-full h-24 industrial-input p-3 text-sm rounded-sm resize-none"
-                                        placeholder="Describe the desired output (e.g. 'Create a Process Flow Diagram and a standardized BOM with columns: Part, Qty')..."
-                                    />
+
+                        {/* 3. Wizard / Configuration Panel */}
+                        <div className="flex-1 w-full border-l border-industrial-concrete md:pl-8 flex flex-col">
+                            {/* Steps Indicator */}
+                            <div className="flex items-center gap-2 mb-6 text-[10px] font-mono uppercase tracking-widest text-industrial-steel-500">
+                                <span className={wizardStep === 1 ? "text-industrial-copper-500" : ""}>1. CONTEXT</span>
+                                <span>→</span>
+                                <span className={wizardStep === 2 ? "text-industrial-copper-500" : ""}>2. DELIVERABLES</span>
+                                <span>→</span>
+                                <span className={wizardStep === 3 ? "text-industrial-copper-500 animate-pulse" : ""}>3. EXECUTE</span>
+                            </div>
+
+                            {wizardStep === 1 && (
+                                <div className="flex-1 flex flex-col gap-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                                    <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest font-mono">Process Goal</h3>
+                                    <div>
+                                        <label className="block text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Requirements / Target Columns</label>
+                                        <textarea
+                                            value={targetColumns}
+                                            onChange={(e) => setTargetColumns(e.target.value)}
+                                            className="w-full h-32 industrial-input p-3 text-sm rounded-sm resize-none focus:border-industrial-copper-500 transition-colors"
+                                            placeholder="Describe the desired output..."
+                                        />
+                                    </div>
+                                    <div className="mt-auto">
+                                        <button
+                                            onClick={() => setWizardStep(2)}
+                                            className="w-full py-3 industrial-btn flex items-center justify-center gap-2 text-xs tracking-widest"
+                                        >
+                                            NEXT STEP: SELECT DOCUMENTS →
+                                        </button>
+                                    </div>
                                 </div>
-                                <button
-                                    onClick={handleConvert}
-                                    disabled={processing || blobs.length === 0}
-                                    className={`w-full py-4 industrial-btn flex items-center justify-center gap-2 text-sm tracking-widest ${processing ? 'opacity-70 cursor-wait' : ''}`}
-                                >
-                                    {processing ? (
+                            )}
+
+                            {wizardStep === 2 && (
+                                <div className="flex-1 flex flex-col gap-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                                    <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest font-mono">Additional Output</h3>
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 max-h-[300px]">
+                                        <label className="block text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Select Documents to Generate</label>
+                                        <div className="space-y-2">
+                                            {DOC_TYPES.map(doc => (
+                                                <label key={doc} className={`flex items-center justify-between p-3 border rounded-sm cursor-pointer transition-all ${selectedDocs.includes(doc) ? 'bg-industrial-copper-500/10 border-industrial-copper-500 text-industrial-copper-500' : 'bg-industrial-steel-900/50 border-industrial-concrete text-industrial-steel-400 hover:border-industrial-steel-500'}`}>
+                                                    <span className="text-xs font-mono uppercase">{doc}</span>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="hidden"
+                                                        checked={selectedDocs.includes(doc)}
+                                                        onChange={() => {
+                                                            setSelectedDocs(prev => prev.includes(doc) ? prev.filter(d => d !== doc) : [...prev, doc]);
+                                                        }}
+                                                    />
+                                                    <div className={`w-3 h-3 border ${selectedDocs.includes(doc) ? 'bg-industrial-copper-500 border-industrial-copper-500' : 'border-industrial-steel-600'}`}></div>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="mt-auto flex gap-3">
+                                        <button
+                                            onClick={() => setWizardStep(1)}
+                                            disabled={processing || (selectedSession as any).status === 'processing'}
+                                            className="px-4 py-3 bg-industrial-steel-800 hover:bg-industrial-steel-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-xs font-mono uppercase border border-industrial-concrete"
+                                        >
+                                            ← Back
+                                        </button>
+                                        <button
+                                            onClick={handleConvert}
+                                            disabled={processing || (selectedSession as any).status === 'processing'}
+                                            className="flex-1 py-3 industrial-btn flex items-center justify-center gap-2 text-xs tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            <span className="text-lg">⚡</span> INITIATE TRANSFER
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {(wizardStep === 3 || wizardStep === 4) && (
+                                <div className="flex-1 flex flex-col items-center justify-center gap-6 animate-in fade-in zoom-in-95 duration-500">
+                                    {(wizardStep === 3 || (selectedSession as any).status === 'processing') ? (
                                         <>
-                                            <span className="animate-spin text-xl">⟳</span> PROCESSING
+                                            <div className="relative w-24 h-24 flex items-center justify-center">
+                                                <div className="absolute inset-0 border-4 border-industrial-steel-800 rounded-full"></div>
+                                                <div className="absolute inset-0 border-4 border-industrial-copper-500 border-t-transparent rounded-full animate-spin"></div>
+                                                <span className="text-2xl animate-pulse">⟳</span>
+                                            </div>
+                                            <div className="text-center">
+                                                <h3 className="text-lg industrial-headline text-industrial-copper-500 mb-2">PROCESSING</h3>
+                                                <p className="text-sm font-mono text-industrial-steel-400 max-w-[200px]">{processingStatus}</p>
+                                            </div>
+                                            <button
+                                                onClick={handleCancel}
+                                                className="mt-4 px-6 py-2 bg-red-900/20 hover:bg-red-900/40 border border-red-500/50 text-red-500 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-all"
+                                            >
+                                                Abort Process
+                                            </button>
+                                        </>
+                                    ) : (selectedSession as any).status === 'cancelled' ? (
+                                        <>
+                                            <div className="w-16 h-16 rounded-full bg-yellow-900/20 border-2 border-yellow-500/50 flex items-center justify-center mb-2">
+                                                <span className="text-2xl text-yellow-500">!</span>
+                                            </div>
+                                            <div className="text-center mb-6">
+                                                <h3 className="text-lg industrial-headline text-yellow-500 mb-1">CANCELLED</h3>
+                                                <p className="text-xs font-mono text-industrial-steel-400">Operation was terminated by user.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
+                                                className="px-6 py-2 industrial-btn text-xs"
+                                            >
+                                                RETRY BATCH
+                                            </button>
+                                        </>
+                                    ) : (selectedSession as any).status === 'error' ? (
+                                        <>
+                                            <div className="w-16 h-16 rounded-full bg-red-900/20 border-2 border-red-500/50 flex items-center justify-center mb-2">
+                                                <span className="text-2xl text-red-500">!</span>
+                                            </div>
+                                            <div className="text-center mb-6">
+                                                <h3 className="text-lg industrial-headline text-red-500 mb-1">EXECUTION ERROR</h3>
+                                                <p className="text-xs font-mono text-industrial-steel-400">The agent encountered a critical failure.</p>
+                                            </div>
+                                            <div className="flex gap-4">
+                                                <button
+                                                    onClick={handleRetry}
+                                                    className="px-6 py-2 industrial-btn text-xs"
+                                                >
+                                                    RETRY CURRENT STEP
+                                                </button>
+                                                <button
+                                                    onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
+                                                    className="px-6 py-2 bg-industrial-steel-800 hover:bg-industrial-steel-700 border border-industrial-concrete rounded-sm text-xs font-mono uppercase"
+                                                >
+                                                    RESET BATCH
+                                                </button>
+                                            </div>
                                         </>
                                     ) : (
                                         <>
-                                            <span className="text-lg">⚡</span> EXECUTE TECH TRANSFER
+                                            <div className="w-16 h-16 rounded-full bg-green-900/20 border-2 border-green-500/50 flex items-center justify-center mb-2">
+                                                <span className="text-2xl text-green-500">✓</span>
+                                            </div>
+                                            <div className="text-center mb-6">
+                                                <h3 className="text-lg industrial-headline text-white mb-1">COMPLETE</h3>
+                                                <p className="text-xs font-mono text-industrial-steel-400">All tasks finished successfully.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
+                                                className="px-6 py-2 industrial-btn text-xs"
+                                            >
+                                                START NEW BATCH
+                                            </button>
                                         </>
                                     )}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* System Log / Terminal */}
-                <div className={`industrial-panel flex-1 flex flex-col min-h-[300px] transition-all duration-300 ${systemLogOpen ? 'flex-grow' : 'h-16 overflow-hidden'}`}>
-                    <div
-                        onClick={() => setSystemLogOpen(!systemLogOpen)}
-                        className="p-3 bg-industrial-steel-900 border-b border-industrial-concrete flex items-center justify-between cursor-pointer hover:bg-industrial-steel-800 transition-colors"
-                    >
-                        <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${processing ? 'bg-industrial-alert animate-pulse' : 'bg-industrial-steel-500'}`} />
-                            <span className="text-xs font-bold font-mono uppercase text-industrial-steel-300">System Log</span>
-                        </div>
-                        <span className="text-[10px] font-mono text-industrial-steel-500">{systemLogOpen ? '[COLLAPSE]' : '[EXPAND]'}</span>
-                    </div>
-
-                    <div className="flex-1 bg-black p-4 font-mono text-xs overflow-y-auto custom-scrollbar space-y-2">
-                        {messages.length === 0 ? (
-                            <div className="text-industrial-steel-600 italic"> System ready. Awaiting initialization... </div>
-                        ) : (
-                            messages.map(msg => (
-                                <div key={msg.id} className={`${msg.role === 'user' ? 'text-industrial-copper-500' : 'text-green-500/80'}`}>
-                                    <span className="opacity-50 mr-2">[{new Date(msg.created_at).toLocaleTimeString()}]</span>
-                                    <span className="font-bold mr-2">{msg.role === 'user' ? '>' : '#'}</span>
-                                    <span className="whitespace-pre-wrap">{msg.content}</span>
                                 </div>
-                            ))
-                        )}
-                        <div ref={messagesEndRef} />
+                            )}
+                        </div>
                     </div>
-                    {/* Terminal Input */}
-                    <form
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            if (!processing && selectedSession) {
-                                const form = e.target as HTMLFormElement;
-                                const input = form.elements.namedItem('termInput') as HTMLInputElement;
-                                if (input.value.trim()) {
-                                    const msg = input.value.trim();
-                                    setMessages(prev => [...prev, {
-                                        id: crypto.randomUUID(),
-                                        session_id: selectedSession.id,
-                                        role: 'user',
-                                        content: msg,
-                                        created_at: new Date().toISOString()
-                                    }]);
-                                    ControllersChatService.chat(selectedSession.id, { message: msg })
-                                        .then(() => pollForResponse(selectedSession.id));
-                                    input.value = '';
-                                }
-                            }
-                        }}
-                        className="p-2 bg-industrial-steel-900 border-t border-industrial-concrete flex gap-2"
-                    >
-                        <span className="text-industrial-copper-500 font-mono font-bold">{'>'}</span>
-                        <input
-                            name="termInput"
-                            type="text"
-                            className="flex-1 bg-transparent border-none outline-none font-mono text-xs text-industrial-copper-500 placeholder-industrial-steel-700"
-                            placeholder="Type command or reply..."
-                            autoComplete="off"
-                        />
-                    </form>
                 </div>
+
+                {/* Status Bar (replaces system log) */}
+                {processing && (
+                    <div className="fixed bottom-0 left-0 right-0 bg-industrial-steel-900/90 border-t border-industrial-copper-500/50 p-2 z-50 flex items-center justify-between px-6 backdrop-blur">
+                        <div className="flex items-center gap-4">
+                            <span className="w-2 h-2 bg-industrial-copper-500 animate-pulse rounded-full"></span>
+                            <span className="font-mono text-xs text-industrial-copper-500 uppercase tracking-widest">{processingStatus}</span>
+                        </div>
+                        <div className="flex gap-1">
+                            {selectedDocs.map((doc, i) => (
+                                <div key={i} className={`w-2 h-2 rounded-full ${processingStatus.includes(doc) ? 'bg-industrial-copper-500 animate-bounce' : 'bg-industrial-steel-800'}`}></div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         );
     };
