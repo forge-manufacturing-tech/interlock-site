@@ -24,11 +24,12 @@ function parseJwt(token: string) {
     try {
         const base64Url = token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+        const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function (c) {
             return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
         }).join(''));
 
-        return JSON.parse(jsonPayload);
+        const parsed = JSON.parse(jsonPayload);
+        return parsed;
     } catch (e) {
         return null;
     }
@@ -38,14 +39,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
     const [user, setUser] = useState<User | null>(() => {
         const storedToken = localStorage.getItem('token');
+        const storedUser = localStorage.getItem('user_data');
+
         if (storedToken) {
-             const decoded = parseJwt(storedToken);
-             return decoded ? {
-                 email: decoded.email || '',
-                 name: decoded.name || '',
-                 role: decoded.role || 'user',
-                 pid: decoded.pid || decoded.sub || ''
-             } : { email: '', name: '' };
+            if (storedUser) {
+                try {
+                    return JSON.parse(storedUser);
+                } catch (e) {
+                    localStorage.removeItem('user_data');
+                }
+            }
+
+            const decoded = parseJwt(storedToken);
+            return decoded ? {
+                email: decoded.email || '',
+                name: decoded.name || '',
+                role: decoded.role || 'user',
+                pid: decoded.pid || decoded.sub || ''
+            } : { email: '', name: '' };
         }
         return null;
     });
@@ -62,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = async (email: string, password: string) => {
         const response = await ControllersAuthService.login({ email, password });
+        console.log('Login Response from Backend:', response);
         const newToken = response.token;
         const decoded = parseJwt(newToken);
 
@@ -69,10 +81,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email,
             name: response.name,
             pid: response.pid,
-            role: decoded?.role || 'user'
+            role: (response as any).role || decoded?.role || 'user'
         };
 
         localStorage.setItem('token', newToken);
+        localStorage.setItem('user_data', JSON.stringify(newUser));
         OpenAPI.TOKEN = newToken;
 
         setUser(newUser);
@@ -87,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const logout = () => {
         localStorage.removeItem('token');
+        localStorage.removeItem('user_data');
         setToken(null);
         setUser(null);
         OpenAPI.TOKEN = undefined;
