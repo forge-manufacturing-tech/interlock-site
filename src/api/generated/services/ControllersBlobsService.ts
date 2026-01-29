@@ -63,11 +63,15 @@ export class ControllersBlobsService {
     }
     /**
      * @param sessionId Session ID
+     * @param formData
      * @returns BlobResponse File uploaded
      * @throws ApiError
      */
     public static upload(
         sessionId: string,
+        formData: {
+            file: Blob;
+        },
     ): CancelablePromise<BlobResponse> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -75,6 +79,8 @@ export class ControllersBlobsService {
             path: {
                 'session_id': sessionId,
             },
+            formData: formData,
+            mediaType: 'multipart/form-data',
             errors: {
                 404: `Session not found`,
             },
