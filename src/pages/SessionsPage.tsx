@@ -295,15 +295,7 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 
         try {
             setUploading(true);
-            const formData = new FormData();
-            formData.append('file', file);
-            const token = localStorage.getItem('token');
-            const response = await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${selectedSession.id}/blobs`, {
-                method: 'POST',
-                body: formData,
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!response.ok) throw new Error('Upload failed');
+            await ControllersBlobsService.upload(selectedSession.id, { file });
 
             // Refresh
             const newBlobs = await ControllersBlobsService.list(selectedSession.id);
