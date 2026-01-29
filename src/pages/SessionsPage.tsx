@@ -13,8 +13,7 @@ export function SessionsPage() {
     const [newSessionTitle, setNewSessionTitle] = useState('');
     const [selectedSession, setSelectedSession] = useState<SessionResponse | null>(null);
 
-    // View Mode & Collaboration State
-    const [viewMode, setViewMode] = useState<'designer' | 'manufacturer'>('designer');
+    // Collaboration State
     const [comments, setComments] = useState<Record<string, string[]>>({});
 
     // State
@@ -167,40 +166,6 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         }
     }, [selectedSession?.id, selectedSession?.content]);
 
-    const handleAddComment = async (blobId: string, text: string) => {
-        if (!selectedSession || !text.trim()) return;
-
-        const newComments = {
-            ...comments,
-            [blobId]: [...(comments[blobId] || []), text.trim()]
-        };
-        setComments(newComments);
-
-        // Persist to backend
-        try {
-            // Merge with existing content to prevent data loss
-            let existingContent: any = {};
-            try {
-                existingContent = selectedSession.content ? JSON.parse(selectedSession.content) : {};
-            } catch (e) {
-                // If existing content is not JSON, preserve it in _raw field if needed, or assume empty object if it was just a string we can overwrite safely
-                // For this app, we assume content is either empty or JSON.
-                console.warn('Session content was not valid JSON, initializing new structure');
-            }
-
-            const payloadObj = { ...existingContent, comments: newComments };
-            const contentPayload = JSON.stringify(payloadObj);
-
-            // Update backend
-            await ControllersSessionsService.update(selectedSession.id, { content: contentPayload });
-
-            // Optimistically update local session content to avoid effect reverting changes if session obj updates
-            setSelectedSession(prev => prev ? { ...prev, content: contentPayload } : null);
-        } catch (error) {
-            console.error('Failed to save comment:', error);
-            alert('Failed to save comment');
-        }
-    };
 
     // Chat panel resize handlers
     const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -663,21 +628,6 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         ))}
                     </div>
                 )}
-                {viewMode === 'designer' && (
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            placeholder="Add comment..."
-                            className="flex-1 industrial-input px-2 py-1 text-[10px] rounded-sm font-mono"
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    handleAddComment(blobId, e.currentTarget.value);
-                                    e.currentTarget.value = '';
-                                }
-                            }}
-                        />
-                    </div>
-                )}
             </div>
         );
 
@@ -1057,23 +1007,6 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         <h1 className="industrial-headline text-xl">{project?.name} <span className="text-industrial-steel-600 mx-2">//</span> TECH TRANSFER SUITE</h1>
                     </div>
 
-                    {selectedSession && (
-                        <div className="flex bg-industrial-steel-900 border border-industrial-concrete rounded-sm p-0.5">
-                            <button
-                                onClick={() => setViewMode('designer')}
-                                className={`px-4 py-1.5 text-[10px] uppercase font-mono tracking-widest transition-all rounded-sm ${viewMode === 'designer' ? 'bg-industrial-copper-500 text-white shadow-glow-copper/20' : 'text-industrial-steel-500 hover:text-industrial-steel-300'}`}
-                            >
-                                Designer
-                            </button>
-                            <button
-                                onClick={() => setViewMode('manufacturer')}
-                                className={`px-4 py-1.5 text-[10px] uppercase font-mono tracking-widest transition-all rounded-sm ${viewMode === 'manufacturer' ? 'bg-industrial-copper-500 text-white shadow-glow-copper/20' : 'text-industrial-steel-500 hover:text-industrial-steel-300'}`}
-                            >
-                                Manufacturer
-                            </button>
-                        </div>
-                    )}
-
                     <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 industrial-btn rounded-sm text-xs">+ New Session</button>
                 </div>
             </header>
@@ -1116,28 +1049,22 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         </div>
                     ) : (
                         <div className="h-full flex flex-col">
-                            {viewMode === 'manufacturer' ? (
-                                <div className="flex-1 flex overflow-hidden">
-                                    <div className="flex-1 overflow-y-auto">
-                                        {(blobs.length === 0 && wizardStep === 1) ? renderEmptyState() : renderWorkbench()}
-                                    </div>
-                                    <div
-                                        ref={resizeRef}
-                                        className="border-l border-industrial-concrete bg-industrial-steel-900/50 flex flex-col h-full relative"
-                                        style={{ width: `${chatPanelWidth}px` }}
-                                    >
-                                        <div
-                                            onMouseDown={handleResizeStart}
-                                            className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-10 transition-colors hover:bg-industrial-copper-500/50 ${isResizing ? 'bg-industrial-copper-500' : 'bg-industrial-copper-500/20'}`}
-                                        />
-                                        <ChatInterface sessionId={selectedSession.id} blobs={blobs} onRefreshBlobs={() => loadSessionData(selectedSession.id)} />
-                                    </div>
-                                </div>
-                            ) : (
+                            <div className="flex-1 flex overflow-hidden">
                                 <div className="flex-1 overflow-y-auto">
                                     {(blobs.length === 0 && wizardStep === 1) ? renderEmptyState() : renderWorkbench()}
                                 </div>
-                            )}
+                                <div
+                                    ref={resizeRef}
+                                    className="border-l border-industrial-concrete bg-industrial-steel-900/50 flex flex-col h-full relative"
+                                    style={{ width: `${chatPanelWidth}px` }}
+                                >
+                                    <div
+                                        onMouseDown={handleResizeStart}
+                                        className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-10 transition-colors hover:bg-industrial-copper-500/50 ${isResizing ? 'bg-industrial-copper-500' : 'bg-industrial-copper-500/20'}`}
+                                    />
+                                    <ChatInterface sessionId={selectedSession.id} blobs={blobs} onRefreshBlobs={() => loadSessionData(selectedSession.id)} />
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>

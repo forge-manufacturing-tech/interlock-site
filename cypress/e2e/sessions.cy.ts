@@ -131,6 +131,11 @@ describe('Sessions Management', () => {
             body: { id: 'mock-session-id', title: sessionTitle, status: 'pending' }
         })
 
+        cy.intercept('GET', '**/api/chat/messages*', {
+            statusCode: 200,
+            body: []
+        }).as('getMessages')
+
         // Create session
         cy.contains('+ New Session', { timeout: 10000 }).click()
         cy.get('input[placeholder="Operation Name"]').type(sessionTitle)
@@ -138,64 +143,14 @@ describe('Sessions Management', () => {
 
         // Should automatically select and display the empty state upload bucket
         cy.contains('Initialize Tech Transfer').should('be.visible')
+
+        // Verify Chat Interface is present (Secure-AI-Link text)
+        cy.contains('Secure-AI-Link').should('be.visible')
     })
 
     it('should navigate back to projects', () => {
         cy.contains('Back', { timeout: 10000 }).click()
         cy.url({ timeout: 10000 }).should('include', '/dashboard')
         cy.contains('PROJECTS').should('be.visible')
-    })
-
-    it('should toggle between Designer and Manufacturer views', () => {
-        const sessionTitle = `View Toggle Test ${Date.now()}`
-
-        // Mock Session with ID
-        cy.intercept('POST', '**/api/sessions', (req) => {
-            req.reply({
-                statusCode: 200,
-                body: { id: 'mock-session-view-id', title: req.body.title, project_id: 'mock-project-id', content: '' }
-            })
-        }).as('createSessionForView')
-
-        cy.intercept('GET', '**/api/sessions*', {
-            statusCode: 200,
-            body: [{ id: 'mock-session-view-id', title: sessionTitle }]
-        }).as('getSessionsForView')
-
-        cy.intercept('GET', '**/api/sessions/mock-session-view-id', {
-            statusCode: 200,
-            body: { id: 'mock-session-view-id', title: sessionTitle, status: 'pending', content: '' }
-        })
-
-        cy.intercept('GET', '**/api/blobs*', {
-            statusCode: 200,
-            body: []
-        })
-
-        cy.intercept('GET', '**/api/chat/messages*', {
-            statusCode: 200,
-            body: []
-        })
-
-        // Create Session
-        cy.contains('+ New Session').click()
-        cy.get('input[placeholder="Operation Name"]').type(sessionTitle)
-        cy.contains('button', 'Initialize').click()
-
-        // Verify Designer Mode (default)
-        // Note: Buttons are uppercase via CSS but text is "Designer" / "Manufacturer" in code.
-        // We can check case-insensitive or the exact text node.
-        cy.contains('Designer').should('be.visible')
-        cy.contains('Manufacturer').should('be.visible')
-
-        // Toggle to Manufacturer
-        cy.contains('Manufacturer').click()
-
-        // Check for Chat Interface presence (Secure-AI-Link text)
-        cy.contains('Secure-AI-Link').should('be.visible')
-
-        // Toggle back
-        cy.contains('Designer').click()
-        cy.contains('Secure-AI-Link').should('not.exist')
     })
 })
