@@ -77,7 +77,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
         if (!confirm('Clear all messages in this session?')) return;
         try {
             await ControllersChatService.clearMessages(sessionId);
-            setMessages([]);
+            loadMessages();
         } catch (error) {
             console.error('Failed to clear messages:', error);
             alert('Failed to clear messages');
