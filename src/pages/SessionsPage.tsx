@@ -1252,7 +1252,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
                     <div className="flex bg-industrial-steel-900 border border-industrial-concrete rounded-sm p-0.5">
                         <span className="px-4 py-1.5 text-[10px] uppercase font-mono tracking-widest bg-industrial-copper-500/10 text-industrial-copper-500 rounded-sm">
-                            {viewMode} View
+                            {viewMode.charAt(0).toUpperCase() + viewMode.slice(1)} View
                         </span>
                     </div>
 
