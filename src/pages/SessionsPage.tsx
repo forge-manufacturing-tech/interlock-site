@@ -43,6 +43,7 @@ export function SessionsPage() {
 
     // State
     const [blobs, setBlobs] = useState<BlobResponse[]>([]);
+    const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
     const [uploading, setUploading] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [processingStatus, setProcessingStatus] = useState('');
@@ -380,7 +381,7 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
     const loadSessionData = async (sessionId: string) => {
         try {
             const blobsData = await ControllersBlobsService.list(sessionId);
-            setBlobs(blobsData);
+            setBlobs(blobsData.filter(b => b.session_id === sessionId));
         } catch (error) {
             console.error('Failed to load session data:', error);
         }
@@ -396,7 +397,7 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 
             // Refresh
             const newBlobs = await ControllersBlobsService.list(selectedSession.id);
-            setBlobs(newBlobs);
+            setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
         } catch (error) {
             console.error('Upload failed:', error);
             alert('Upload failed');
@@ -524,7 +525,10 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                     ControllersBlobsService.list(sessionId)
                 ]);
 
-                setBlobs(newBlobs);
+                setBlobs(newBlobs.filter(b => b.session_id === sessionId));
+
+                // Trigger chat refresh
+                setChatRefreshTrigger(prev => prev + 1);
 
                 // Update selected session with newest data
                 setSelectedSession(sessionData);
@@ -635,7 +639,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
             });
 
             const newBlobs = await ControllersBlobsService.list(selectedSession.id);
-            setBlobs(newBlobs);
+            setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
 
             alert("CSV Saved successfully");
 
@@ -1317,6 +1321,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                             blobs={blobs}
                                             onRefreshBlobs={() => loadSessionData(selectedSession.id)}
                                             initialMessage={SYSTEM_PROMPT}
+                                            refreshTrigger={chatRefreshTrigger}
                                         />
                                     </div>
                                 </div>
