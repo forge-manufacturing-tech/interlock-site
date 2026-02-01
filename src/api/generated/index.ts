@@ -31,4 +31,3 @@ export { ControllersBlobsService } from './services/ControllersBlobsService';
 export { ControllersChatService } from './services/ControllersChatService';
 export { ControllersProjectsService } from './services/ControllersProjectsService';
 export { ControllersSessionsService } from './services/ControllersSessionsService';
-export { ControllersUsersService } from './services/ControllersUsersService';

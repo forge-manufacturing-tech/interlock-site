@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type UserResponse = {
+    api_key?: string;
     created_at: string;
     email: string;
     id: number;

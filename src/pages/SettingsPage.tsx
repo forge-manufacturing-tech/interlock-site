@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ControllersUsersService } from '../api/generated';
+import { ControllersAuthService } from '../api/generated';
 import { useAuth } from '../contexts/AuthContext';
 
 export function SettingsPage() {
@@ -17,14 +17,13 @@ export function SettingsPage() {
     const loadApiKey = async () => {
         try {
             setLoading(true);
-            const data = await ControllersUsersService.getApiKey();
-            setApiKey(data.api_key);
+            const userResponse = await ControllersAuthService.getCurrentUser();
+            setApiKey(userResponse.api_key || null);
         } catch (error: any) {
             console.error('Failed to load API key:', error);
             if (error.status === 401) {
                 logout();
             }
-            // Handle 404 if backend not implemented yet
         } finally {
             setLoading(false);
         }
@@ -37,7 +36,7 @@ export function SettingsPage() {
 
         try {
             setRotating(true);
-            const data = await ControllersUsersService.rotateApiKey();
+            const data = await ControllersAuthService.rotateApiKey();
             setApiKey(data.api_key);
         } catch (error) {
             console.error('Failed to rotate API key:', error);
