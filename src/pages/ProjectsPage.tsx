@@ -86,6 +86,12 @@ export function ProjectsPage() {
                                 Admin Panel
                             </button>
                         )}
+                        <button
+                            onClick={() => navigate('/settings')}
+                            className="text-sm text-industrial-steel-400 hover:text-industrial-copper-500 transition-colors font-bold uppercase tracking-wider mr-4"
+                        >
+                            Settings
+                        </button>
                         <span className="text-sm text-industrial-steel-400 font-mono">{user?.email}</span>
                         <button
                             onClick={logout}

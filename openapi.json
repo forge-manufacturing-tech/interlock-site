@@ -1,6 +1,22 @@
 {
   "components": {
     "schemas": {
+      "ApiKeyResponse": {
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "BlobResponse": {
         "properties": {
           "content_type": {
@@ -1267,6 +1283,52 @@
         },
         "tags": [
           "controllers::chat"
+        ]
+      }
+    },
+    "/api/users/me/api_key": {
+      "get": {
+        "operationId": "get_api_key",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyResponse"
+                }
+              }
+            },
+            "description": "Get API Key"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "tags": [
+          "controllers::users"
+        ]
+      }
+    },
+    "/api/users/me/api_key/rotate": {
+      "post": {
+        "operationId": "rotate_api_key",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyResponse"
+                }
+              }
+            },
+            "description": "Rotate API Key"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "tags": [
+          "controllers::users"
         ]
       }
     },
