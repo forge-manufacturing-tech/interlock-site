@@ -5,6 +5,7 @@ import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { SessionsPage } from './pages/SessionsPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { DesignerDashboard } from './pages/DesignerDashboard';
 
@@ -114,6 +115,14 @@ function AppRoutes() {
                     <AdminRoute>
                         <AdminDashboard />
                     </AdminRoute>
+                }
+            />
+            <Route
+                path="/settings"
+                element={
+                    <ProtectedRoute>
+                        <SettingsPage />
+                    </ProtectedRoute>
                 }
             />
         </Routes>

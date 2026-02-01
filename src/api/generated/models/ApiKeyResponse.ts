@@ -2,12 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type UserResponse = {
-    api_key?: string;
+export type ApiKeyResponse = {
+    api_key: string;
     created_at: string;
-    email: string;
-    id: number;
-    name: string;
-    pid: string;
-    role: string;
 };

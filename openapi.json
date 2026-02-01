@@ -1,6 +1,22 @@
 {
   "components": {
     "schemas": {
+      "ApiKeyResponse": {
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "BlobResponse": {
         "properties": {
           "content_type": {
@@ -316,6 +332,9 @@
       },
       "UserResponse": {
         "properties": {
+          "api_key": {
+            "type": "string"
+          },
           "created_at": {
             "type": "string"
           },
@@ -1267,6 +1286,52 @@
         },
         "tags": [
           "controllers::chat"
+        ]
+      }
+    },
+    "/api/auth/api-key": {
+      "post": {
+        "operationId": "rotate_api_key",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyResponse"
+                }
+              }
+            },
+            "description": "Rotate API Key"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "tags": [
+          "controllers::auth"
+        ]
+      }
+    },
+    "/api/auth/current": {
+      "get": {
+        "operationId": "get_current_user",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Get current user"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "tags": [
+          "controllers::auth"
         ]
       }
     },
