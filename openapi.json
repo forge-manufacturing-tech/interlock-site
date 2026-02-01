@@ -406,6 +406,35 @@
       }
     },
     "/api/admin/users/{id}": {
+      "delete": {
+        "operationId": "remove_user",
+        "parameters": [
+          {
+            "description": "User PID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User deleted"
+          },
+          "403": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "User not found"
+          }
+        },
+        "tags": [
+          "controllers::admin"
+        ]
+      },
       "get": {
         "operationId": "get_user",
         "parameters": [
