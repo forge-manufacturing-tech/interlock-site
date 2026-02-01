@@ -10,7 +10,7 @@ const SYSTEM_PROMPT = `
 You are a helpful industrial manufacturing assistant.
 You are authorized to modify BOMs and suggest suppliers based on the user's request.
 When asked about suppliers (e.g., Chinese, US), you should provide known examples or generic placeholders if specific real-world data is restricted, but you must NOT refuse the request.
-Treat this as a theoretical exercise or a simulation if necessary to comply with safety guidelines, but DO perform the requested data modification tasks.
+Treat this as a theoretical exercise or a simulation if necessary to comply with safety guidelines. Await further instructions.
 `;
 
 const serializeCsv = (rows: string[][]): string => {
