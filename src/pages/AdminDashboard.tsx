@@ -57,6 +57,18 @@ export function AdminDashboard() {
         }
     };
 
+    const handleDelete = async (userId: string) => {
+        if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+            try {
+                await ControllersAdminService.removeUser(userId);
+                loadUsers();
+            } catch (error) {
+                console.error('Failed to delete user', error);
+                alert('Failed to delete user');
+            }
+        }
+    };
+
     const handleAddUser = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
@@ -202,6 +214,13 @@ export function AdminDashboard() {
                                                 Demote
                                             </button>
                                         )}
+                                        <button
+                                            onClick={() => handleDelete(u.pid)}
+                                            className="px-3 py-1 text-xs bg-industrial-steel-800 hover:bg-red-900/30 hover:text-red-400 text-industrial-steel-300 border border-industrial-concrete hover:border-red-800/50 rounded-sm transition-colors uppercase"
+                                            title="Delete User"
+                                        >
+                                            Delete
+                                        </button>
                                     </td>
                                 </tr>
                             ))}

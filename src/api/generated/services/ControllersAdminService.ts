@@ -23,6 +23,26 @@ export class ControllersAdminService {
     }
     /**
      * @param id User PID
+     * @returns any User deleted
+     * @throws ApiError
+     */
+    public static removeUser(
+        id: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/users/{id}',
+            path: {
+                'id': id,
+            },
+            errors: {
+                403: `Unauthorized`,
+                404: `User not found`,
+            },
+        });
+    }
+    /**
+     * @param id User PID
      * @returns UserResponse Get user
      * @throws ApiError
      */

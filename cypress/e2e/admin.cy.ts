@@ -167,7 +167,7 @@ describe('Admin Dashboard', () => {
     cy.wait('@demoteUser');
   });
 
-  it('should not show delete options', () => {
+  it('should delete a user', () => {
     cy.intercept('POST', '/api/auth/login', {
         statusCode: 200,
         body: { token: adminToken, name: adminPayload.name, pid: adminPayload.pid, is_verified: true }
@@ -176,9 +176,14 @@ describe('Admin Dashboard', () => {
     cy.intercept('GET', '/api/admin/users', {
         statusCode: 200,
         body: [
-            { name: 'User To Remove', email: 'remove@example.com', role: 'user', pid: 'remove-pid', id: 4, created_at: '2023-01-04' }
+            { name: 'User To Delete', email: 'delete@example.com', role: 'user', pid: 'delete-pid', id: 4, created_at: '2023-01-04' }
         ]
     }).as('getUsers');
+
+    cy.intercept('DELETE', '/api/admin/users/delete-pid', {
+        statusCode: 200,
+        body: {}
+    }).as('deleteUser');
 
     cy.visit('/login');
     cy.get('input[type="email"]').type('admin@example.com');
@@ -189,10 +194,13 @@ describe('Admin Dashboard', () => {
     cy.visit('/admin');
     cy.wait('@getUsers');
 
-    // Check that delete buttons are not present
-    cy.contains('Delete').should('not.exist');
-    cy.get('button[title="Delete User"]').should('not.exist');
-    cy.contains('Delete Selected').should('not.exist');
-    cy.get('thead input[type="checkbox"]').should('not.exist');
+    // Confirm dialog
+    cy.on('window:confirm', () => true);
+
+    cy.contains('tr', 'User To Delete').within(() => {
+        cy.contains('button', 'Delete').should('be.visible').click();
+    });
+
+    cy.wait('@deleteUser');
   });
 });
