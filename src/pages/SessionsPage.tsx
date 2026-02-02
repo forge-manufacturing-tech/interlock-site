@@ -60,6 +60,10 @@ export function SessionsPage() {
     const [wizardStartType, setWizardStartType] = useState<'bom' | 'description' | 'sketch' | null>(null);
     const [productDescription, setProductDescription] = useState('');
 
+    // Verification State
+    const [verificationStatus, setVerificationStatus] = useState<'unverified' | 'loading' | 'verified' | 'flagged'>('unverified');
+    const [verificationIssues, setVerificationIssues] = useState<string[]>([]);
+
     // Ref to track current session ID for async operations
     const selectedSessionIdRef = useRef<string | null>(null);
 
@@ -71,15 +75,7 @@ export function SessionsPage() {
     const [isResizing, setIsResizing] = useState(false);
     const resizeRef = useRef<HTMLDivElement>(null);
 
-    const DOC_TYPES = [
-        "Production",
-        "Pilot Runs",
-        "Installation & Testing",
-        "Process Development",
-        "Design for manufacturing",
-        "Review & Capabilities Analysis",
-        "Visual Aids"
-    ];
+
 
     const DOC_PROMPTS: Record<string, string> = {
         "Production": `
@@ -180,6 +176,8 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         setLifecycleCurrentStep(0);
         setProcessing(false);
         setProcessingStatus('');
+        setVerificationStatus('unverified');
+        setVerificationIssues([]);
 
         if (selectedSession) {
             console.log(`[SessionsPage] Switching to session ${selectedSession.id}`);
@@ -321,29 +319,41 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             if (response && response.role !== 'user') {
                 try {
                     const content = response.content;
-                    let jsonString = content;
+                    let steps: string[] = [];
 
-                    // Try to extract JSON from code blocks first
-                    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-                    if (codeBlockMatch) {
-                        jsonString = codeBlockMatch[1];
-                    } else {
-                        // Fallback: try to find array brackets
-                        const arrayMatch = content.match(/\[[\s\S]*\]/);
-                        if (arrayMatch) {
-                            jsonString = arrayMatch[0];
+                    // 1. Try to find a JSON array pattern [ ... ]
+                    const jsonMatch = content.match(/\[[\s\S]*?\]/);
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (Array.isArray(parsed)) steps = parsed;
+                        } catch (e) {
+                            // continued below
                         }
                     }
 
-                    const steps = JSON.parse(jsonString);
-                    if (Array.isArray(steps) && steps.every(s => typeof s === 'string')) {
+                    // 2. If simple regex failed, try cleaning "Final Answer:" prefix common in some models
+                    if (steps.length === 0) {
+                        const cleanContent = content.replace(/^Final Answer:\s*/i, '').trim();
+                        try {
+                            const parsed = JSON.parse(cleanContent);
+                            if (Array.isArray(parsed)) steps = parsed;
+                        } catch (e) { }
+                    }
+
+                    if (steps.length > 0 && steps.every(s => typeof s === 'string')) {
                         handleLifecycleUpdate(steps, 0);
                     } else {
-                        throw new Error("Parsed content is not a string array");
+                        console.error("AI Response content:", content);
+                        throw new Error("Could not extract valid string array from response");
                     }
                 } catch (e) {
                     console.error("Failed to parse AI response for lifecycle", e);
-                    alert("Failed to parse AI response. Please try again.");
+                    // Fallback to default lifecycle if AI fails
+                    const defaultSteps = ["Design Review", "Engineering", "Prototyping", "Validation", "Production Launch"];
+                    handleLifecycleUpdate(defaultSteps, 0);
+                    // Optional: Notify user we used defaults
+                    console.log("Used default lifecycle steps due to parse error.");
                 }
             }
         } catch (error) {
@@ -351,6 +361,57 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             alert('Failed to generate lifecycle steps');
         } finally {
             setIsGeneratingLifecycle(false);
+        }
+    };
+
+    const handleRunSupplierAnalysis = async () => {
+        if (!selectedSession) return;
+        setVerificationStatus('loading');
+        setVerificationIssues([]);
+
+        try {
+            const prompt = `[SYSTEM: VERIFICATION] Analyze the current BOM and supplier details in the database/csv. 
+            IGNORE previous file generation status messages. Focus ONLY on the content of the data.
+            CRITICAL INSTRUCTION:
+            If specific supplier names, contact info, lead times, MOQs, and locations are present and sufficient for manufacturing, reply ONLY with "[VERIFIED]".
+            If ANY of these are missing or generic, do NOT include "[VERIFIED]". Instead, list each specific missing item or risk as a bullet point.
+            `;
+
+            const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
+
+            if (response && response.role !== 'user') {
+                const cleanContent = response.content.replace(/^Final Answer:\s*/i, '').trim();
+
+                if (cleanContent.includes('[VERIFIED]')) {
+                    setVerificationStatus('verified');
+                } else {
+                    // Extract bullet points
+                    let issues = cleanContent.split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line.startsWith('*') || line.startsWith('-') || line.match(/^\d+\./))
+                        .map(line => line.replace(/^[\*\-\d\.]+\s*/, ''));
+
+                    // If regex extraction fails to find bullets, try splitting by newlines and filtering empty strings if the content is short
+                    if (issues.length === 0 && cleanContent.length > 0) {
+                        // Fallback: take non-empty lines that don't look like chat fluff
+                        issues = cleanContent.split('\n').map(l => l.trim()).filter(l => l.length > 5 && !l.startsWith("Reference:"));
+                    }
+
+                    if (issues.length > 0) {
+                        setVerificationIssues(issues);
+                        setVerificationStatus('flagged');
+                    } else {
+                        // If still no issues found but not verified, trust the raw content
+                        setVerificationIssues([cleanContent]);
+                        setVerificationStatus('flagged');
+                    }
+                }
+                setChatRefreshTrigger(prev => prev + 1);
+            }
+        } catch (error) {
+            console.error('Analysis failed:', error);
+            setVerificationStatus('unverified');
+            alert('Failed to run analysis');
         }
     };
 
@@ -915,17 +976,11 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                     placeholder="e.g. A portable medical ventilator with a brushless DC motor, aluminum housing, and integrated LCD display..."
                                 />
                                 <button
-                                    onClick={() => {
-                                        if (productDescription.length < 20) {
-                                            alert("Please provide a more detailed technical description.");
-                                            return;
-                                        }
-                                        setWizardStep(2);
-                                    }}
+                                    onClick={handleConvert}
                                     className="industrial-btn px-12 py-4 w-full flex items-center justify-center gap-3"
                                 >
-                                    <span>PROCEED TO DELIVERABLES</span>
-                                    <span className="text-xl">→</span>
+                                    <span>INITIALIZE SYSTEM</span>
+                                    <span className="text-xl">⚡</span>
                                 </button>
                             </>
                         )}
@@ -978,25 +1033,61 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                     <div className="industrial-panel p-6">
                         <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">2. BOM & Supply Chain</h3>
                         <div className="space-y-4">
-                            <div className="bg-industrial-steel-900 p-4 border border-industrial-concrete rounded-sm">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-sm font-mono text-neutral-200">Suppliers Identified</span>
-                                    <span className="text-xs font-mono text-green-500">3/5 Verified</span>
-                                </div>
-                                <div className="w-full bg-industrial-steel-800 h-1 rounded-full overflow-hidden">
-                                    <div className="bg-green-500 w-[60%] h-full"></div>
-                                </div>
+                            <div className="bg-industrial-steel-900 p-4 border border-industrial-concrete rounded-sm min-h-[120px] flex flex-col justify-center">
+                                {verificationStatus === 'unverified' && (
+                                    <div className="text-center">
+                                        <div className="text-industrial-steel-500 text-xs font-mono mb-3">No analysis data available</div>
+                                        <button
+                                            onClick={handleRunSupplierAnalysis}
+                                            className="px-4 py-2 bg-industrial-steel-800 hover:bg-industrial-copper-500 hover:text-white border border-industrial-concrete rounded-sm text-xs font-mono uppercase transition-all"
+                                        >
+                                            Initiate Risk Scan
+                                        </button>
+                                    </div>
+                                )}
+
+                                {verificationStatus === 'loading' && (
+                                    <div className="flex flex-col items-center justify-center">
+                                        <div className="w-8 h-8 rounded-full border-2 border-industrial-steel-800 border-t-industrial-copper-500 animate-spin mb-3"></div>
+                                        <div className="text-industrial-copper-500 text-[10px] font-mono uppercase tracking-widest animate-pulse">Scanning Supply Chain...</div>
+                                    </div>
+                                )}
+
+                                {verificationStatus === 'verified' && (
+                                    <div className="text-center">
+                                        <div className="w-12 h-12 bg-green-900/20 text-green-500 rounded-full flex items-center justify-center mx-auto mb-3 border border-green-500/50">
+                                            <span className="text-xl">✓</span>
+                                        </div>
+                                        <div className="text-green-500 font-bold text-sm uppercase tracking-wider mb-1">SUPPLY CHAIN VERIFIED</div>
+                                        <div className="text-industrial-steel-500 text-[10px] font-mono">All critical data points confirmed</div>
+                                    </div>
+                                )}
+
+                                {verificationStatus === 'flagged' && (
+                                    <div className="flex flex-col h-full">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <span className="text-red-500 text-lg">⚠</span>
+                                            <span className="text-red-500 font-bold text-xs uppercase tracking-wider">RISKS DETECTED</span>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto max-h-40 custom-scrollbar mb-3">
+                                            <ul className="space-y-1">
+                                                {verificationIssues.map((issue, idx) => (
+                                                    <li key={idx} className="text-[10px] text-neutral-300 font-mono flex items-start gap-2">
+                                                        <span className="text-red-500 mt-0.5">•</span>
+                                                        <span>{issue}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                        <button
+                                            onClick={handleRunSupplierAnalysis}
+                                            className="w-full py-1.5 bg-red-900/10 hover:bg-red-900/30 border border-red-500/30 text-red-400 text-[10px] font-mono uppercase rounded-sm transition-colors"
+                                        >
+                                            Re-verify
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                            <button
-                                onClick={() => {
-                                    ControllersChatService.chat(selectedSession!.id, {
-                                        message: "[SYSTEM: VERIFICATION] Analyze the current BOM and identify any single-source risks or missing supplier details."
-                                    }).then(() => setChatRefreshTrigger(prev => prev + 1));
-                                }}
-                                className="w-full py-2 bg-industrial-steel-800 border border-industrial-concrete hover:bg-industrial-steel-700 text-xs font-mono uppercase transition-colors"
-                            >
-                                Run Supplier Risk Analysis
-                            </button>
                         </div>
                     </div>
 
@@ -1296,7 +1387,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                     isEditable={viewMode === 'manufacturer'}
                     onUpdate={handleLifecycleUpdate}
                     onGenerate={handleLifecycleGenerate}
-                    isGenerating={isGeneratingLifecycle}
+                    isGenerating={isGeneratingLifecycle || processing || selectedSession?.status === 'processing'}
                 />
 
                 {/* 1. Results Preview Section (Top for visibility) */}
@@ -1485,179 +1576,104 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         </div>
 
 
-                        {/* 3. Wizard / Configuration Panel */}
+                        {/* 3. Status Panel */}
                         <div className="flex-1 w-full border-l border-industrial-concrete md:pl-8 flex flex-col">
-                            {/* Steps Indicator */}
-                            <div className="flex items-center gap-2 mb-6 text-[10px] font-mono uppercase tracking-widest text-industrial-steel-500">
-                                <span className={wizardStep === 1 ? "text-industrial-copper-500" : ""}>1. CONTEXT</span>
-                                <span>→</span>
-                                <span className={wizardStep === 2 ? "text-industrial-copper-500" : ""}>2. DELIVERABLES</span>
-                                <span>→</span>
-                                <span className={wizardStep === 3 ? "text-industrial-copper-500 animate-pulse" : ""}>3. EXECUTE</span>
-                            </div>
-
-                            {wizardStep === 1 && (
-                                <div className="flex-1 flex flex-col gap-4 animate-in fade-in slide-in-from-right-4 duration-300">
-                                    <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest font-mono">Process Goal</h3>
-                                    <div>
-                                        <label className="block text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Requirements / Target Columns</label>
-                                        <textarea
-                                            value={targetColumns}
-                                            onChange={(e) => setTargetColumns(e.target.value)}
-                                            className="w-full h-32 industrial-input p-3 text-sm rounded-sm resize-none focus:border-industrial-copper-500 transition-colors"
-                                            placeholder="Describe the desired output..."
-                                        />
-                                    </div>
-                                    <div className="mt-auto space-y-3">
-                                        <button
-                                            onClick={() => setWizardStep(2)}
-                                            className="w-full py-3 industrial-btn flex items-center justify-center gap-2 text-xs tracking-widest"
-                                        >
-                                            NEXT STEP: SELECT DOCUMENTS →
-                                        </button>
-
-                                        {/* Bypass / Fast Forward to Verification */}
-                                        <button
-                                            onClick={() => handleStageChange('verification')}
-                                            className="w-full py-2 bg-transparent text-industrial-steel-500 hover:text-white text-[10px] uppercase tracking-widest border border-transparent hover:border-industrial-concrete transition-all"
-                                        >
-                                            Skip Ingestion & Go to Verification
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {wizardStep === 2 && (
-                                <div className="flex-1 flex flex-col gap-4 animate-in fade-in slide-in-from-right-4 duration-300">
-                                    <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest font-mono">Additional Output</h3>
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 max-h-[300px]">
-                                        <label className="block text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Select Documents to Generate</label>
-                                        <div className="space-y-2">
-                                            {DOC_TYPES.map(doc => (
-                                                <label key={doc} className={`flex items-center justify-between p-3 border rounded-sm cursor-pointer transition-all ${selectedDocs.includes(doc) ? 'bg-industrial-copper-500/10 border-industrial-copper-500 text-industrial-copper-500' : 'bg-industrial-steel-900/50 border-industrial-concrete text-industrial-steel-400 hover:border-industrial-steel-500'}`}>
-                                                    <span className="text-xs font-mono uppercase">{doc}</span>
-                                                    <input
-                                                        type="checkbox"
-                                                        className="hidden"
-                                                        checked={selectedDocs.includes(doc)}
-                                                        onChange={() => {
-                                                            setSelectedDocs(prev => prev.includes(doc) ? prev.filter(d => d !== doc) : [...prev, doc]);
-                                                        }}
-                                                    />
-                                                    <div className={`w-3 h-3 border ${selectedDocs.includes(doc) ? 'bg-industrial-copper-500 border-industrial-copper-500' : 'border-industrial-steel-600'}`}></div>
-                                                </label>
-                                            ))}
+                            <div className="flex-1 flex flex-col items-center justify-center gap-6 animate-in fade-in zoom-in-95 duration-500">
+                                {(wizardStep === 3 || selectedSession?.status === 'processing') ? (
+                                    <>
+                                        <div className="relative w-24 h-24 flex items-center justify-center">
+                                            <div className="absolute inset-0 border-4 border-industrial-steel-800 rounded-full"></div>
+                                            <div className="absolute inset-0 border-4 border-industrial-copper-500 border-t-transparent rounded-full animate-spin"></div>
+                                            <span className="text-2xl animate-pulse">⟳</span>
                                         </div>
-                                    </div>
-                                    <div className="mt-auto flex gap-3">
+                                        <div className="text-center">
+                                            <h3 className="text-lg industrial-headline text-industrial-copper-500 mb-2">PROCESSING</h3>
+                                            <p className="text-sm font-mono text-industrial-steel-400 max-w-[200px]">{processingStatus || "Analyzing System Inputs..."}</p>
+                                        </div>
                                         <button
-                                            onClick={() => setWizardStep(1)}
-                                            disabled={processing || (selectedSession as any).status === 'processing'}
-                                            className="px-4 py-3 bg-industrial-steel-800 hover:bg-industrial-steel-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-sm text-xs font-mono uppercase border border-industrial-concrete"
+                                            onClick={handleCancel}
+                                            className="mt-4 px-6 py-2 bg-red-900/20 hover:bg-red-900/40 border border-red-500/50 text-red-500 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-all"
                                         >
-                                            ← Back
+                                            Abort Process
                                         </button>
+                                    </>
+                                ) : selectedSession?.status === 'cancelled' ? (
+                                    <>
+                                        <div className="w-16 h-16 rounded-full bg-yellow-900/20 border-2 border-yellow-500/50 flex items-center justify-center mb-2">
+                                            <span className="text-2xl text-yellow-500">!</span>
+                                        </div>
+                                        <div className="text-center mb-6">
+                                            <h3 className="text-lg industrial-headline text-yellow-500 mb-1">CANCELLED</h3>
+                                            <p className="text-xs font-mono text-industrial-steel-400">Operation was terminated by user.</p>
+                                        </div>
                                         <button
-                                            onClick={handleConvert}
-                                            disabled={processing || (selectedSession as any).status === 'processing'}
-                                            className="flex-1 py-3 industrial-btn flex items-center justify-center gap-2 text-xs tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                                            onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
+                                            className="px-6 py-2 industrial-btn text-xs"
                                         >
-                                            <span className="text-lg">⚡</span> INITIATE TRANSFER
+                                            RETRY BATCH
                                         </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {(wizardStep === 3 || wizardStep === 4) && (
-                                <div className="flex-1 flex flex-col items-center justify-center gap-6 animate-in fade-in zoom-in-95 duration-500">
-                                    {(wizardStep === 3 || (selectedSession as any).status === 'processing') ? (
-                                        <>
-                                            <div className="relative w-24 h-24 flex items-center justify-center">
-                                                <div className="absolute inset-0 border-4 border-industrial-steel-800 rounded-full"></div>
-                                                <div className="absolute inset-0 border-4 border-industrial-copper-500 border-t-transparent rounded-full animate-spin"></div>
-                                                <span className="text-2xl animate-pulse">⟳</span>
-                                            </div>
-                                            <div className="text-center">
-                                                <h3 className="text-lg industrial-headline text-industrial-copper-500 mb-2">PROCESSING</h3>
-                                                <p className="text-sm font-mono text-industrial-steel-400 max-w-[200px]">{processingStatus}</p>
-                                            </div>
+                                    </>
+                                ) : (selectedSession?.status === 'error' && wizardStep !== 4) ? (
+                                    <>
+                                        <div className="w-16 h-16 rounded-full bg-red-900/20 border-2 border-red-500/50 flex items-center justify-center mb-2">
+                                            <span className="text-2xl text-red-500">!</span>
+                                        </div>
+                                        <div className="text-center mb-6">
+                                            <h3 className="text-lg industrial-headline text-red-500 mb-1">EXECUTION ERROR</h3>
+                                            <p className="text-xs font-mono text-industrial-steel-400">The agent encountered a failure.</p>
+                                        </div>
+                                        <div className="flex flex-col gap-3 w-full max-w-xs">
                                             <button
-                                                onClick={handleCancel}
-                                                className="mt-4 px-6 py-2 bg-red-900/20 hover:bg-red-900/40 border border-red-500/50 text-red-500 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-all"
+                                                onClick={() => setWizardStep(4)}
+                                                className="px-6 py-2 bg-industrial-steel-800 border border-industrial-copper-500/30 hover:bg-industrial-copper-500/10 hover:text-white text-industrial-copper-500 text-xs font-mono uppercase transition-all"
                                             >
-                                                Abort Process
+                                                IGNORE & CONTINUE
                                             </button>
-                                        </>
-                                    ) : (selectedSession as any).status === 'cancelled' ? (
-                                        <>
-                                            <div className="w-16 h-16 rounded-full bg-yellow-900/20 border-2 border-yellow-500/50 flex items-center justify-center mb-2">
-                                                <span className="text-2xl text-yellow-500">!</span>
-                                            </div>
-                                            <div className="text-center mb-6">
-                                                <h3 className="text-lg industrial-headline text-yellow-500 mb-1">CANCELLED</h3>
-                                                <p className="text-xs font-mono text-industrial-steel-400">Operation was terminated by user.</p>
-                                            </div>
-                                            <button
-                                                onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
-                                                className="px-6 py-2 industrial-btn text-xs"
-                                            >
-                                                RETRY BATCH
-                                            </button>
-                                        </>
-                                    ) : (selectedSession as any).status === 'error' ? (
-                                        <>
-                                            <div className="w-16 h-16 rounded-full bg-red-900/20 border-2 border-red-500/50 flex items-center justify-center mb-2">
-                                                <span className="text-2xl text-red-500">!</span>
-                                            </div>
-                                            <div className="text-center mb-6">
-                                                <h3 className="text-lg industrial-headline text-red-500 mb-1">EXECUTION ERROR</h3>
-                                                <p className="text-xs font-mono text-industrial-steel-400">The agent encountered a critical failure.</p>
-                                            </div>
-                                            <div className="flex gap-4">
+                                            <div className="flex gap-3 justify-center">
                                                 <button
                                                     onClick={handleRetry}
-                                                    className="px-6 py-2 industrial-btn text-xs"
+                                                    className="px-6 py-2 industrial-btn text-xs flex-1"
                                                 >
-                                                    RETRY CURRENT STEP
+                                                    RETRY
                                                 </button>
                                                 <button
                                                     onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
-                                                    className="px-6 py-2 bg-industrial-steel-800 hover:bg-industrial-steel-700 border border-industrial-concrete rounded-sm text-xs font-mono uppercase"
+                                                    className="px-6 py-2 bg-industrial-steel-800 hover:bg-industrial-steel-700 border border-industrial-concrete rounded-sm text-xs font-mono uppercase flex-1"
                                                 >
-                                                    RESET BATCH
+                                                    RESET
                                                 </button>
                                             </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="w-16 h-16 rounded-full bg-green-900/20 border-2 border-green-500/50 flex items-center justify-center mb-2">
-                                                <span className="text-2xl text-green-500">✓</span>
-                                            </div>
-                                            <div className="text-center mb-6">
-                                                <h3 className="text-lg industrial-headline text-white mb-1">COMPLETE</h3>
-                                                <p className="text-xs font-mono text-industrial-steel-400">All tasks finished successfully.</p>
-                                            </div>
-                                            <button
-                                                onClick={() => handleStageChange('verification')}
-                                                disabled={lifecycleSteps.length === 0}
-                                                className="px-6 py-2 industrial-btn text-xs mb-3 w-full disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed group relative"
-                                            >
-                                                {lifecycleSteps.length === 0 ? (
-                                                    <span className="flex items-center justify-center gap-2">
-                                                        <span>LOCKED: DEFINE LIFECYCLE FIRST</span>
-                                                    </span>
-                                                ) : "PROCEED TO VERIFICATION"}
-                                            </button>
-                                            <button
-                                                onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
-                                                className="text-[10px] text-industrial-steel-500 hover:text-white uppercase tracking-widest"
-                                            >
-                                                START NEW BATCH
-                                            </button>
-                                        </>
-                                    )}
-                                </div>
-                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="w-16 h-16 rounded-full bg-green-900/20 border-2 border-green-500/50 flex items-center justify-center mb-2">
+                                            <span className="text-2xl text-green-500">✓</span>
+                                        </div>
+                                        <div className="text-center mb-6">
+                                            <h3 className="text-lg industrial-headline text-white mb-1">STATUS: {(selectedSession?.status || 'IDLE').toUpperCase()}</h3>
+                                            <p className="text-xs font-mono text-industrial-steel-400">System Ready.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleStageChange('verification')}
+                                            disabled={lifecycleSteps.length === 0}
+                                            className="px-6 py-2 industrial-btn text-xs mb-3 w-full disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed group relative"
+                                        >
+                                            {lifecycleSteps.length === 0 ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <span>LOCKED: DEFINE LIFECYCLE FIRST</span>
+                                                </span>
+                                            ) : "PROCEED TO VERIFICATION"}
+                                        </button>
+                                        <button
+                                            onClick={() => setShowCreateModal(true)}
+                                            className="text-[10px] text-industrial-steel-500 hover:text-white uppercase tracking-widest"
+                                        >
+                                            START NEW SESSION
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

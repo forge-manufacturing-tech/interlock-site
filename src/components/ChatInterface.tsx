@@ -39,13 +39,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
             let data = await ControllersChatService.listMessages(sessionId);
             if (signal?.aborted) return;
 
-            if (data.length === 0 && initialMessage) {
-                // Send hidden initial message to seed the conversation
-                await ControllersChatService.chat(sessionId, { message: initialMessage });
-                if (signal?.aborted) return;
-                data = await ControllersChatService.listMessages(sessionId);
-                if (signal?.aborted) return;
-            }
+
 
             setMessages(data);
         } catch (error) {
@@ -64,17 +58,24 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
         setInput('');
         setLoading(true);
 
+        let contentToSend = userMessage;
+
+        // If this is the FIRST message, prepend the system prompt (initialMessage)
+        if (messages.length === 0 && initialMessage) {
+            contentToSend = `${initialMessage}\n\n${userMessage}`;
+        }
+
         const tempMsg: MessageResponse = {
             id: crypto.randomUUID(),
             session_id: sessionId,
             role: 'user',
-            content: userMessage,
+            content: contentToSend,
             created_at: new Date().toISOString()
         };
         setMessages(prev => [...prev, tempMsg]);
 
         try {
-            await ControllersChatService.chat(sessionId, { message: userMessage });
+            await ControllersChatService.chat(sessionId, { message: contentToSend });
             loadMessages();
             onRefreshBlobs?.();
         } catch (error) {
@@ -137,7 +138,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                         <div className="text-[10px] font-mono uppercase tracking-[0.3em]">Ready for secure data processing</div>
                     </div>
                 )}
-                {messages.filter(msg => msg.content !== initialMessage).map((msg) => (
+                {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[85%] p-4 rounded-sm border ${msg.role === 'user'
                             ? 'bg-industrial-copper-500/5 border-industrial-copper-500/30 text-neutral-100 shadow-glow-copper/5'
