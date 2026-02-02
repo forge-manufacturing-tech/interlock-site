@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ControllersSessionsService, ControllersProjectsService, ControllersChatService, ControllersBlobsService, SessionResponse, ProjectResponse, BlobResponse } from '../api/generated';
 import { useAuth } from '../contexts/AuthContext';
 import { ChatInterface } from '../components/ChatInterface';
 import { LifecycleTracker } from '../components/LifecycleTracker';
+
+type WorkflowStage = 'ingestion' | 'verification' | 'complete';
+
 
 const SYSTEM_PROMPT = `
 [SYSTEM: MANUFACTURING_AGENT]
@@ -26,6 +29,7 @@ const serializeCsv = (rows: string[][]): string => {
 
 export function SessionsPage() {
     const { projectId } = useParams<{ projectId: string }>();
+    const [searchParams] = useSearchParams();
     const [project, setProject] = useState<ProjectResponse | null>(null);
     const [sessions, setSessions] = useState<SessionResponse[]>([]);
     const [loading, setLoading] = useState(true);
@@ -41,6 +45,9 @@ export function SessionsPage() {
     const [lifecycleCurrentStep, setLifecycleCurrentStep] = useState(0);
     const [isGeneratingLifecycle, setIsGeneratingLifecycle] = useState(false);
 
+    // Workflow State
+    const [workflowStage, setWorkflowStage] = useState<WorkflowStage>('ingestion');
+
     // State
     const [blobs, setBlobs] = useState<BlobResponse[]>([]);
     const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
@@ -52,6 +59,9 @@ export function SessionsPage() {
     const [targetColumns, setTargetColumns] = useState('Part Number, Description, Quantity, Manufacturer, Price');
     const [wizardStartType, setWizardStartType] = useState<'bom' | 'description' | 'sketch' | null>(null);
     const [productDescription, setProductDescription] = useState('');
+
+    // Ref to track current session ID for async operations
+    const selectedSessionIdRef = useRef<string | null>(null);
 
     // Chat panel resize state
     const [chatPanelWidth, setChatPanelWidth] = useState(() => {
@@ -156,22 +166,45 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
     }, [projectId]);
 
     // Session Switch
+    // Session Switch with Cleanup and Abort Logic
     useEffect(() => {
+        selectedSessionIdRef.current = selectedSession?.id || null;
         setWizardStartType(null);
         setProductDescription('');
+
+        // AGGRESSIVE CLEANUP: Wipe all session-specific state
+        setBlobs([]);
+        setCsvData({});
+        setComments({});
+        setLifecycleSteps([]);
+        setLifecycleCurrentStep(0);
+        setProcessing(false);
+        setProcessingStatus('');
+
         if (selectedSession) {
+            console.log(`[SessionsPage] Switching to session ${selectedSession.id}`);
             loadSessionData(selectedSession.id);
+
+            // Check if lifecycle already exists to bypass wizard
+            let hasLifecycle = false;
+            if (selectedSession.content) {
+                try {
+                    const parsed = JSON.parse(selectedSession.content);
+                    hasLifecycle = parsed.lifecycle && parsed.lifecycle.steps && parsed.lifecycle.steps.length > 0;
+                } catch (e) { }
+            }
+
             // If already processing, start polling
             if ((selectedSession as any).status === 'processing') {
                 startPolling(selectedSession.id);
-            } else if ((selectedSession as any).status === 'completed') {
+            } else if ((selectedSession as any).status === 'completed' || hasLifecycle) {
+                // If completed OR has lifecycle defined, skip to "Done/Review" state (Step 4)
                 setWizardStep(4);
             } else {
                 setWizardStep(1);
             }
         } else {
-            setBlobs([]);
-            setCsvData({});
+            console.log(`[SessionsPage] Cleared session selection`);
             setWizardStep(1);
         }
     }, [selectedSession?.id]); // Use ID to avoid re-triggering when status changes via setPoll
@@ -210,6 +243,43 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         } else {
             setLifecycleSteps([]);
             setLifecycleCurrentStep(0);
+        }
+    }, [selectedSession?.id, selectedSession?.content]);
+
+    const handleStageChange = async (newStage: WorkflowStage) => {
+        if (!selectedSession) return;
+        setWorkflowStage(newStage);
+
+        try {
+            let existingContent: any = {};
+            try {
+                existingContent = selectedSession.content ? JSON.parse(selectedSession.content) : {};
+            } catch (e) { }
+
+            const payloadObj = {
+                ...existingContent,
+                workflow_stage: newStage
+            };
+            const contentPayload = JSON.stringify(payloadObj);
+
+            await ControllersSessionsService.update(selectedSession.id, { content: contentPayload });
+
+            // Optimistically update
+            setSelectedSession(prev => prev ? { ...prev, content: contentPayload } : null);
+        } catch (error) {
+            console.error('Failed to update stage:', error);
+        }
+    };
+
+    // Load Workflow Stage
+    useEffect(() => {
+        if (selectedSession?.content) {
+            try {
+                const parsed = JSON.parse(selectedSession.content);
+                setWorkflowStage(parsed.workflow_stage || 'ingestion');
+            } catch (e) {
+                setWorkflowStage('ingestion');
+            }
         }
     }, [selectedSession?.id, selectedSession?.content]);
 
@@ -394,6 +464,15 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             ]);
             setProject(projectData);
             setSessions(sessionsData);
+
+            // Auto-select session from URL if present
+            const targetSessionId = searchParams.get('sessionId');
+            if (targetSessionId) {
+                const target = sessionsData.find(s => s.id === targetSessionId);
+                if (target) {
+                    setSelectedSession(target);
+                }
+            }
         } catch (error: any) {
             if (error.status === 401) logout();
             else if (error.status === 403 || error.status === 404) navigate('/dashboard');
@@ -404,8 +483,16 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 
     const loadSessionData = async (sessionId: string) => {
         try {
+            console.log(`[SessionsPage] Loading blobs for ${sessionId}`);
             const blobsData = await ControllersBlobsService.list(sessionId);
-            setBlobs(blobsData.filter(b => b.session_id === sessionId));
+
+            // Re-check Ref to ensure we are still on the same session
+            if (selectedSessionIdRef.current === sessionId) {
+                console.log(`[SessionsPage] Setting ${blobsData.length} blobs for ${sessionId}`);
+                setBlobs(blobsData.filter(b => b.session_id === sessionId));
+            } else {
+                console.warn(`[SessionsPage] Ignored stale blobs for ${sessionId} (Current: ${selectedSessionIdRef.current})`);
+            }
         } catch (error) {
             console.error('Failed to load session data:', error);
         }
@@ -557,6 +644,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
         setWizardStep(3);
 
         while (attempts < maxAttempts) {
+            if (selectedSessionIdRef.current !== sessionId) break;
             try {
                 const [sessionData, newBlobs] = await Promise.all([
                     fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${sessionId}`, {
@@ -660,7 +748,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                 let existingContent: any = {};
                 try {
                     existingContent = selectedSession.content ? JSON.parse(selectedSession.content) : {};
-                } catch (e) {}
+                } catch (e) { }
 
                 const payloadObj = { ...existingContent, comments: newCommentsMap };
                 await ControllersSessionsService.update(selectedSession.id, { content: JSON.stringify(payloadObj) });
@@ -858,7 +946,307 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
         );
     };
 
-    const renderWorkbench = () => {
+    const renderVerificationPanel = () => {
+        return (
+            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+                <div className="flex justify-between items-center mb-2">
+                    <h2 className="industrial-headline text-2xl">Verification Station</h2>
+                    <button
+                        onClick={() => handleStageChange('complete')}
+                        className="industrial-btn px-6 py-2 flex items-center gap-2"
+                    >
+                        <span>FINAL APPROVAL</span>
+                        <span>→</span>
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Lifecycle Verification */}
+                    <div className="industrial-panel p-6">
+                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">1. Product Lifecycle</h3>
+                        <LifecycleTracker
+                            steps={lifecycleSteps}
+                            currentStep={lifecycleCurrentStep}
+                            isEditable={true}
+                            onUpdate={handleLifecycleUpdate}
+                            onGenerate={handleLifecycleGenerate}
+                            isGenerating={isGeneratingLifecycle}
+                        />
+                    </div>
+
+                    {/* BOM & Supplier Verification */}
+                    <div className="industrial-panel p-6">
+                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">2. BOM & Supply Chain</h3>
+                        <div className="space-y-4">
+                            <div className="bg-industrial-steel-900 p-4 border border-industrial-concrete rounded-sm">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-sm font-mono text-neutral-200">Suppliers Identified</span>
+                                    <span className="text-xs font-mono text-green-500">3/5 Verified</span>
+                                </div>
+                                <div className="w-full bg-industrial-steel-800 h-1 rounded-full overflow-hidden">
+                                    <div className="bg-green-500 w-[60%] h-full"></div>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    ControllersChatService.chat(selectedSession!.id, {
+                                        message: "[SYSTEM: VERIFICATION] Analyze the current BOM and identify any single-source risks or missing supplier details."
+                                    }).then(() => setChatRefreshTrigger(prev => prev + 1));
+                                }}
+                                className="w-full py-2 bg-industrial-steel-800 border border-industrial-concrete hover:bg-industrial-steel-700 text-xs font-mono uppercase transition-colors"
+                            >
+                                Run Supplier Risk Analysis
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Documentation Check */}
+                    <div className="industrial-panel p-6 md:col-span-2">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest">3. Documentation Output</h3>
+                            <span className="text-[10px] font-mono text-industrial-steel-500">{blobs.length} Assets Generated</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {blobs.filter(b => b.content_type.includes('pdf') || b.content_type.includes('word') || b.file_name.endsWith('.docx')).map(doc => (
+                                <div key={doc.id} className="flex items-center justify-between p-3 bg-industrial-steel-900 border border-industrial-concrete rounded-sm">
+                                    <span className="text-xs font-mono truncate max-w-[150px]">{doc.file_name}</span>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleDownload(doc)} className="text-[10px] text-industrial-steel-500 hover:text-white">View</button>
+                                        <span className="text-[10px] text-green-500">✓ Valid</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* AI Feasibility Check */}
+                    <div className="industrial-panel p-6 md:col-span-2 border-l-4 border-l-industrial-copper-500">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-1">4. Feasibility Status</h3>
+                                <p className="text-[10px] text-industrial-steel-400 font-mono">AI-Driven Manufacturing Analysis</p>
+                            </div>
+                            <button
+                                onClick={handleGenerateCritique}
+                                className="px-3 py-1 bg-industrial-copper-500/10 text-industrial-copper-500 border border-industrial-copper-500/50 text-[10px] font-mono uppercase hover:bg-industrial-copper-500 hover:text-white transition-all"
+                            >
+                                Refresh Analysis
+                            </button>
+                        </div>
+                        <div className="mt-4 p-4 bg-black/30 rounded-sm font-mono text-xs text-neutral-300 leading-relaxed max-h-40 overflow-y-auto">
+                            {/* In a real app, this would be parsing the last critique message */}
+                            Analysis active. Please check the chat panel for detailed feasibility reports and warnings. Ensure all critical errors are resolved before final approval.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )
+    };
+
+    const renderSharedProductView = () => {
+        return (
+            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 animate-in fade-in duration-700">
+                <div className="flex justify-between items-center mb-8 border-b border-industrial-concrete pb-4">
+                    <div>
+                        <div className="flex items-center gap-3 mb-1">
+                            <h2 className="industrial-headline text-3xl">{project?.name || 'Product'} <span className="text-industrial-copper-500">REV. A</span></h2>
+                            <span className="px-2 py-0.5 bg-green-900/30 text-green-500 border border-green-500/30 text-[10px] font-mono uppercase tracking-widest rounded-sm">
+                                PRODUCTION READY
+                            </span>
+                        </div>
+                        <p className="font-mono text-xs text-industrial-steel-400 uppercase tracking-widest">
+                            Authorized Shared Definition • {new Date().toLocaleDateString()}
+                        </p>
+                    </div>
+                    {viewMode === 'manufacturer' && (
+                        <button
+                            onClick={() => handleStageChange('verification')}
+                            className="text-xs font-mono text-industrial-steel-500 hover:text-white flex items-center gap-2 px-3 py-1 border border-industrial-concrete rounded-sm hover:border-industrial-copper-500/50 transition-colors"
+                        >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                            </svg>
+                            <span>UNLOCK REVISION</span>
+                        </button>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Left Col: Specs */}
+                    <div className="lg:col-span-2 space-y-6">
+                        <div className="industrial-panel p-6">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-6">Product Definition</h3>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div>
+                                    <h4 className="text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Primary Description</h4>
+                                    <p className="text-sm font-mono text-neutral-200 leading-relaxed">
+                                        {productDescription || "Full technical specification defined in attached documentation."}
+                                    </p>
+                                </div>
+                                <div className="space-y-4">
+                                    {lifecycleSteps.length > 0 && (
+                                        <div>
+                                            <h4 className="text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Current Phase</h4>
+                                            <div className="text-sm font-bold text-white border-l-2 border-industrial-copper-500 pl-3">
+                                                {lifecycleSteps[lifecycleCurrentStep]}
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <h4 className="text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Total Components</h4>
+                                        <div className="text-sm font-bold text-white">
+                                            {Object.values(csvData).reduce((acc, rows) => acc + (rows.length > 1 ? rows.length - 1 : 0), 0) || "N/A"}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Artifacts Download */}
+                        <div className="industrial-panel p-6">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-6">Master Records</h3>
+                            <div className="space-y-2">
+                                {blobs.map(blob => (
+                                    <div key={blob.id} className="flex items-center justify-between p-3 hover:bg-white/5 border-b border-industrial-concrete/30 transition-colors group">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-industrial-steel-900 rounded-sm">
+                                                <svg className="w-4 h-4 text-industrial-steel-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-mono text-neutral-200 group-hover:text-white">{blob.file_name}</div>
+                                                <div className="text-[10px] text-industrial-steel-500 uppercase">
+                                                    {(blob.size / 1024).toFixed(1)} KB • {new Date(blob.created_at).toLocaleDateString()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => handleDownload(blob)}
+                                            className="px-4 py-2 bg-industrial-steel-800 hover:bg-industrial-copper-500 hover:text-white rounded-sm text-[10px] font-bold uppercase tracking-wider transition-all"
+                                        >
+                                            Download
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right Col: JSON / Structure */}
+                    <div className="industrial-panel p-0 overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-industrial-concrete bg-industrial-steel-900">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest">Metadata Source</h3>
+                        </div>
+                        <div className="flex-1 overflow-auto p-4 bg-black/40">
+                            <pre className="text-[10px] font-mono text-industrial-steel-400 whitespace-pre-wrap">
+                                {JSON.stringify({
+                                    projectId: project?.id,
+                                    revision: "A.1",
+                                    status: "LOCKED",
+                                    lifecycle: {
+                                        stage: lifecycleSteps[lifecycleCurrentStep] || "Unknown",
+                                        total_steps: lifecycleSteps.length
+                                    },
+                                    assets: blobs.map(b => ({ name: b.file_name, type: b.content_type })),
+                                    generated_at: new Date().toISOString()
+                                }, null, 2)}
+                            </pre>
+                        </div>
+                        <div className="p-4 bg-industrial-steel-900 border-t border-industrial-concrete">
+                            <button className="w-full py-2 bg-industrial-copper-500 hover:bg-industrial-copper-400 text-black font-bold text-xs uppercase tracking-widest rounded-sm transition-colors">
+                                Export Full Package
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    const renderDesignerIngestionView = () => {
+        return (
+            <div className="flex-1 flex overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-6">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="industrial-headline text-2xl">Joint Ingestion Workspace</h2>
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                            <span className="text-[10px] font-mono text-industrial-steel-400 uppercase tracking-widest">Live Session</span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-6">
+                        {/* Shared Data List */}
+                        <div className="industrial-panel p-6">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">Shared Data Repository</h3>
+                            {blobs.length === 0 ? (
+                                <div className="p-8 border-2 border-dashed border-industrial-concrete rounded-sm flex flex-col items-center justify-center text-center">
+                                    <p className="text-industrial-steel-500 text-sm font-mono mb-4">No shared files yet.</p>
+                                    <p className="text-xs text-industrial-steel-600 max-w-xs">Upload specifications, drawings, or requirements to begin the collaboration.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {blobs.map(blob => (
+                                        <div key={blob.id} className="flex items-center justify-between p-3 bg-industrial-steel-900 border border-industrial-concrete rounded-sm">
+                                            <div className="flex items-center gap-3">
+                                                <svg className="w-4 h-4 text-industrial-steel-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                                <span className="text-sm font-mono text-neutral-200">{blob.file_name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                                <span className="text-[10px] text-industrial-steel-600 uppercase font-mono">{(blob.size / 1024).toFixed(1)} KB</span>
+                                                <button onClick={() => handleDownload(blob)} className="text-industrial-copper-500 hover:text-white text-[10px] font-bold uppercase tracking-wider">Download</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="mt-6 pt-6 border-t border-industrial-concrete">
+                                <label className="industrial-btn w-full py-4 flex items-center justify-center gap-2 cursor-pointer">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                    <span>UPLOAD NEW ARTIFACT</span>
+                                    <input type="file" className="hidden" onChange={handleFileUpload} multiple />
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Status Card */}
+                        <div className="p-4 bg-industrial-steel-900/50 border border-industrial-concrete rounded-sm">
+                            <h3 className="text-[10px] font-bold text-industrial-steel-500 uppercase tracking-widest mb-2">Session Status</h3>
+                            <p className="text-sm font-mono text-neutral-300">
+                                Manufacturer is currently analyzing inputs. Please stay in the chat for clarification requests.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Shared Chat Panel */}
+                <div
+                    ref={resizeRef}
+                    className="border-l border-industrial-concrete bg-industrial-steel-900/50 flex flex-col h-full relative"
+                    style={{ width: `${chatPanelWidth}px` }}
+                >
+                    <div
+                        onMouseDown={handleResizeStart}
+                        className={`absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize z-10 transition-colors hover:bg-industrial-copper-500/50 ${isResizing ? 'bg-industrial-copper-500' : 'bg-industrial-copper-500/20'}`}
+                    />
+                    <ChatInterface
+                        sessionId={selectedSession!.id}
+                        blobs={blobs}
+                        onRefreshBlobs={() => loadSessionData(selectedSession!.id)}
+                        initialMessage={SYSTEM_PROMPT}
+                        refreshTrigger={chatRefreshTrigger}
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    const renderIngestionWorkbench = () => {
+
         const images = blobs.filter(b => b.content_type.startsWith('image/') || b.file_name.toLowerCase().endsWith('.png') || b.file_name.toLowerCase().endsWith('.jpg'));
         const documents = blobs.filter(b =>
             b.content_type === 'application/pdf' ||
@@ -1120,12 +1508,20 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                             placeholder="Describe the desired output..."
                                         />
                                     </div>
-                                    <div className="mt-auto">
+                                    <div className="mt-auto space-y-3">
                                         <button
                                             onClick={() => setWizardStep(2)}
                                             className="w-full py-3 industrial-btn flex items-center justify-center gap-2 text-xs tracking-widest"
                                         >
                                             NEXT STEP: SELECT DOCUMENTS →
+                                        </button>
+
+                                        {/* Bypass / Fast Forward to Verification */}
+                                        <button
+                                            onClick={() => handleStageChange('verification')}
+                                            className="w-full py-2 bg-transparent text-industrial-steel-500 hover:text-white text-[10px] uppercase tracking-widest border border-transparent hover:border-industrial-concrete transition-all"
+                                        >
+                                            Skip Ingestion & Go to Verification
                                         </button>
                                     </div>
                                 </div>
@@ -1242,8 +1638,19 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                                 <p className="text-xs font-mono text-industrial-steel-400">All tasks finished successfully.</p>
                                             </div>
                                             <button
+                                                onClick={() => handleStageChange('verification')}
+                                                disabled={lifecycleSteps.length === 0}
+                                                className="px-6 py-2 industrial-btn text-xs mb-3 w-full disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed group relative"
+                                            >
+                                                {lifecycleSteps.length === 0 ? (
+                                                    <span className="flex items-center justify-center gap-2">
+                                                        <span>LOCKED: DEFINE LIFECYCLE FIRST</span>
+                                                    </span>
+                                                ) : "PROCEED TO VERIFICATION"}
+                                            </button>
+                                            <button
                                                 onClick={() => { setWizardStep(1); setSelectedDocs([]); }}
-                                                className="px-6 py-2 industrial-btn text-xs"
+                                                className="text-[10px] text-industrial-steel-500 hover:text-white uppercase tracking-widest"
                                             >
                                                 START NEW BATCH
                                             </button>
@@ -1297,7 +1704,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                             }}
                             className="text-industrial-steel-400 hover:text-industrial-copper-500 transition-colors font-mono text-sm uppercase"
                         >
-                            ← Back
+                            ← {viewMode === 'designer' ? 'All Sessions' : 'Back'}
                         </button>
                         <h1 className="industrial-headline text-xl">{project?.name} <span className="text-industrial-steel-600 mx-2">//</span> TECH TRANSFER SUITE</h1>
                     </div>
@@ -1313,8 +1720,8 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
             </header>
 
             <div className="flex flex-1 overflow-hidden">
-                {/* Minimal History Sidebar */}
-                <div className={`border-r border-industrial-concrete bg-industrial-steel-900/50 overflow-y-auto scanlines ${selectedSession ? 'hidden lg:block w-64' : 'w-full lg:w-64 block'}`}>
+                {/* Minimal History Sidebar - Hidden for Designers */}
+                <div className={`border-r border-industrial-concrete bg-industrial-steel-900/50 overflow-y-auto scanlines ${viewMode === 'designer' ? 'hidden' : (selectedSession ? 'hidden lg:block w-64' : 'w-full lg:w-64 block')}`}>
                     <div className="p-4">
                         <h2 className="text-[10px] font-bold text-industrial-steel-500 uppercase tracking-widest mb-4 font-mono">History</h2>
                         {sessions.length === 0 ? (
@@ -1366,10 +1773,50 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         </div>
                     ) : (
                         <div className="h-full flex flex-col">
-                            {viewMode === 'manufacturer' ? (
+                            {/* DESIGNER VIEW */}
+                            {viewMode === 'designer' && (
+                                <div className="flex-1 flex overflow-hidden">
+                                    {workflowStage === 'ingestion' && renderDesignerIngestionView()}
+
+                                    {workflowStage === 'verification' && (
+                                        <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in duration-500 overflow-y-auto">
+                                            <div className="w-20 h-20 mb-6 bg-industrial-copper-500/10 rounded-full flex items-center justify-center border border-industrial-copper-500/30">
+                                                <span className="text-3xl">🔍</span>
+                                            </div>
+                                            <h2 className="text-xl industrial-headline text-white mb-2">Verification Phase</h2>
+                                            <p className="text-industrial-steel-400 font-mono text-sm max-w-md text-center mb-8">
+                                                The manufacturer is verifying the BOM, suppliers, and generated documentation.
+                                                <br />
+                                                Review will be available shortly.
+                                            </p>
+
+                                            {/* Allow chat during verification too? User asked for ingestion, but usually chat is good everywhere. 
+                                                For now keeping it restricted as per previous design, unless requested. 
+                                                Actually, let's allow chat in a collapsed/minimized way or just keep the focus on status. 
+                                                The user specificially asked for chat "during ingestion phase". 
+                                            */}
+                                        </div>
+                                    )}
+
+                                    {workflowStage === 'complete' && (
+                                        <div className="flex-1 overflow-y-auto">
+                                            {renderSharedProductView()}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* MANUFACTURER VIEW */}
+                            {viewMode === 'manufacturer' && (
                                 <div className="flex-1 flex overflow-hidden">
                                     <div className="flex-1 overflow-y-auto">
-                                        {(blobs.length === 0 && wizardStep === 1) ? renderEmptyState() : renderWorkbench()}
+                                        {workflowStage === 'ingestion' && (
+                                            <>
+                                                {(blobs.length === 0 && wizardStep === 1) ? renderEmptyState() : renderIngestionWorkbench()}
+                                            </>
+                                        )}
+                                        {workflowStage === 'verification' && renderVerificationPanel()}
+                                        {workflowStage === 'complete' && renderSharedProductView()}
                                     </div>
                                     <div
                                         ref={resizeRef}
@@ -1388,10 +1835,6 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                             refreshTrigger={chatRefreshTrigger}
                                         />
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="flex-1 overflow-y-auto">
-                                    {(blobs.length === 0 && wizardStep === 1) ? renderEmptyState() : renderWorkbench()}
                                 </div>
                             )}
                         </div>

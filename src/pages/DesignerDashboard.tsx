@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ControllersSessionsService, ControllersProjectsService, SessionResponse } from '../api/generated';
@@ -17,17 +17,21 @@ export function DesignerDashboard() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        loadData();
+        const controller = new AbortController();
+        loadData(controller.signal);
+        return () => controller.abort();
     }, []);
 
-    const loadData = async () => {
+    const loadData = async (signal?: AbortSignal) => {
         try {
             setLoading(true);
             const projects = await ControllersProjectsService.list();
+            if (signal?.aborted) return;
 
             const allSessions: SessionWithProject[] = [];
 
             await Promise.all(projects.map(async (p) => {
+                if (signal?.aborted) return;
                 try {
                     const projectSessions = await ControllersSessionsService.list(p.id);
                     projectSessions.forEach(s => {
@@ -63,15 +67,20 @@ export function DesignerDashboard() {
                 }
             }));
 
+            if (signal?.aborted) return;
+
             // Sort by updated_at desc
             allSessions.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
             setSessions(allSessions);
 
         } catch (error: any) {
+            if (signal?.aborted) return;
             console.error('Failed to load dashboard data', error);
             if (error.status === 401) logout();
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) {
+                setLoading(false);
+            }
         }
     };
 
@@ -132,7 +141,7 @@ export function DesignerDashboard() {
                             {sessions.map(session => (
                                 <button
                                     key={session.id}
-                                    onClick={() => navigate(`/projects/${session.project_id}`)}
+                                    onClick={() => navigate(`/projects/${session.project_id}?sessionId=${session.id}`)}
                                     className="group relative industrial-panel p-6 text-left hover:border-industrial-copper-500 transition-all duration-300 flex flex-col h-64"
                                 >
                                     <div className="absolute top-0 left-0 w-full h-1 bg-industrial-steel-800 group-hover:bg-industrial-copper-500 transition-colors"></div>
@@ -156,16 +165,16 @@ export function DesignerDashboard() {
                                         <div>
                                             <div className="flex justify-between text-[10px] font-mono text-industrial-steel-400 mb-1 uppercase">
                                                 <span>Current Phase</span>
-                                                <span>{session.lifecycleCurrentIndex + 1} / {session.lifecycleStepsCount || 1}</span>
+                                                <span>{(session.lifecycleCurrentIndex || 0) + 1} / {(session.lifecycleStepsCount || 1)}</span>
                                             </div>
                                             <div className="text-sm font-mono text-industrial-copper-500 truncate">
                                                 {session.lifecycleStep}
                                             </div>
-                                            {session.lifecycleStepsCount > 0 && (
+                                            {(session.lifecycleStepsCount || 0) > 0 && (
                                                 <div className="w-full h-1 bg-industrial-steel-800 mt-2 rounded-full overflow-hidden">
                                                     <div
                                                         className="h-full bg-industrial-copper-500"
-                                                        style={{ width: `${((session.lifecycleCurrentIndex + 1) / session.lifecycleStepsCount) * 100}%` }}
+                                                        style={{ width: `${((session.lifecycleCurrentIndex || 0) + 1) / (session.lifecycleStepsCount || 1) * 100}%` }}
                                                     ></div>
                                                 </div>
                                             )}

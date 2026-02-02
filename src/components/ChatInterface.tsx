@@ -12,6 +12,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
     const [messages, setMessages] = useState<MessageResponse[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [isInitializing, setIsInitializing] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -22,26 +23,36 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
     };
 
     useEffect(() => {
-        loadMessages();
+        const controller = new AbortController();
+        setMessages([]); // Clear messages immediately on session switch
+        loadMessages(controller.signal);
+        return () => controller.abort();
     }, [sessionId, refreshTrigger]);
 
     useEffect(() => {
         scrollToBottom();
     }, [messages, loading]);
 
-    const loadMessages = async () => {
+    const loadMessages = async (signal?: AbortSignal) => {
         try {
+            setIsInitializing(true);
             let data = await ControllersChatService.listMessages(sessionId);
+            if (signal?.aborted) return;
 
             if (data.length === 0 && initialMessage) {
                 // Send hidden initial message to seed the conversation
                 await ControllersChatService.chat(sessionId, { message: initialMessage });
+                if (signal?.aborted) return;
                 data = await ControllersChatService.listMessages(sessionId);
+                if (signal?.aborted) return;
             }
 
             setMessages(data);
         } catch (error) {
+            if (signal?.aborted) return;
             console.error('Failed to load messages:', error);
+        } finally {
+            if (!signal?.aborted) setIsInitializing(false);
         }
     };
 
@@ -115,7 +126,12 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                 className="flex-1 overflow-y-auto p-4 space-y-4 scanlines bg-industrial-steel-950/50 custom-scrollbar"
                 style={{ scrollBehavior: 'smooth' }}
             >
-                {messages.length === 0 && (
+                {isInitializing && messages.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full opacity-50 select-none animate-pulse">
+                        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-industrial-copper-500">Establishing Secure Link...</div>
+                    </div>
+                )}
+                {!isInitializing && messages.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-full opacity-30 select-none">
                         <div className="industrial-headline text-4xl mb-2">INTERLOCK</div>
                         <div className="text-[10px] font-mono uppercase tracking-[0.3em]">Ready for secure data processing</div>
@@ -181,6 +197,6 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                     <span className="text-[8px] font-mono text-industrial-steel-600 uppercase tracking-widest">v1.2.4-stable</span>
                 </div>
             </form>
-        </div>
+        </div >
     );
 }
