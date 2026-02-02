@@ -9,7 +9,7 @@ export function AdminDashboard() {
     const [showAddUserModal, setShowAddUserModal] = useState(false);
     const [showResetModal, setShowResetModal] = useState(false);
     const [selectedUser, setSelectedUser] = useState<UserResponse | null>(null);
-    const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+    const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
 
     // Form states
     const [newUserEmail, setNewUserEmail] = useState('');
@@ -58,6 +58,51 @@ export function AdminDashboard() {
         }
     };
 
+    const handleDelete = async (userId: string) => {
+        if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+            try {
+                await ControllersAdminService.removeUser(userId);
+                loadUsers();
+            } catch (error) {
+                console.error('Failed to delete user', error);
+                alert('Failed to delete user');
+            }
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (!confirm(`Are you sure you want to delete ${selectedUsers.size} users? This action cannot be undone.`)) return;
+
+        try {
+            await Promise.all(Array.from(selectedUsers).map(id => ControllersAdminService.removeUser(id)));
+            setSelectedUsers(new Set());
+            loadUsers();
+            alert('Users deleted successfully');
+        } catch (error) {
+            console.error('Failed to delete some users', error);
+            alert('Failed to delete some users');
+            loadUsers();
+        }
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedUsers.size === users.length) {
+            setSelectedUsers(new Set());
+        } else {
+            setSelectedUsers(new Set(users.map(u => u.pid)));
+        }
+    };
+
+    const toggleSelectUser = (userId: string) => {
+        const newSelected = new Set(selectedUsers);
+        if (newSelected.has(userId)) {
+            newSelected.delete(userId);
+        } else {
+            newSelected.add(userId);
+        }
+        setSelectedUsers(newSelected);
+    };
+
     const handleAddUser = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
@@ -92,55 +137,6 @@ export function AdminDashboard() {
         } catch (error) {
             console.error('Failed to reset password', error);
             alert('Failed to reset password');
-        }
-    };
-
-    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.checked) {
-            setSelectedUserIds(users.map(u => u.pid));
-        } else {
-            setSelectedUserIds([]);
-        }
-    };
-
-    const handleSelectUser = (userId: string) => {
-        setSelectedUserIds(prev =>
-            prev.includes(userId)
-                ? prev.filter(id => id !== userId)
-                : [...prev, userId]
-        );
-    };
-
-    const handleDeleteUser = async (userId: string) => {
-        if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-            return;
-        }
-        try {
-            await ControllersAdminService.deleteUser(userId);
-            setSelectedUserIds(prev => prev.filter(id => id !== userId));
-            loadUsers();
-        } catch (error) {
-            console.error('Failed to delete user', error);
-            alert('Failed to delete user');
-        }
-    };
-
-    const handleBulkDelete = async () => {
-        if (!confirm(`Are you sure you want to delete ${selectedUserIds.length} users? This action cannot be undone.`)) {
-            return;
-        }
-
-        try {
-            // Delete sequentially to avoid overwhelming the server (or parallel if preferred)
-            // Using Promise.all for parallel deletion as it's usually better for UX if server handles it
-            await Promise.all(selectedUserIds.map(id => ControllersAdminService.deleteUser(id)));
-            setSelectedUserIds([]);
-            loadUsers();
-            alert('Users deleted successfully');
-        } catch (error) {
-            console.error('Failed to delete users', error);
-            alert('Failed to delete some users');
-            loadUsers(); // Reload to see who was deleted
         }
     };
 
@@ -192,12 +188,12 @@ export function AdminDashboard() {
                         <p className="text-industrial-steel-400 text-sm font-mono">System administration and user control</p>
                     </div>
                     <div className="flex gap-2">
-                        {selectedUserIds.length > 0 && (
+                        {selectedUsers.size > 0 && (
                             <button
                                 onClick={handleBulkDelete}
-                                className="px-6 py-2 bg-red-900/50 hover:bg-red-900/70 border border-red-800 text-red-200 rounded-sm font-medium transition-colors uppercase tracking-wide text-sm"
+                                className="px-6 py-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 rounded-sm font-medium transition-colors mr-2"
                             >
-                                Delete Selected ({selectedUserIds.length})
+                                Delete Selected ({selectedUsers.size})
                             </button>
                         )}
                         <button
@@ -214,12 +210,12 @@ export function AdminDashboard() {
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-industrial-steel-900 border-b border-industrial-concrete text-xs uppercase tracking-wider text-industrial-steel-400">
-                                <th className="p-4 w-12 text-center">
+                                <th className="p-4 w-12">
                                     <input
                                         type="checkbox"
-                                        checked={users.length > 0 && selectedUserIds.length === users.length}
-                                        onChange={handleSelectAll}
-                                        className="rounded border-industrial-concrete bg-industrial-steel-800 text-industrial-copper-500 focus:ring-industrial-copper-500/50"
+                                        checked={users.length > 0 && selectedUsers.size === users.length}
+                                        onChange={toggleSelectAll}
+                                        className="rounded border-industrial-concrete bg-industrial-steel-900 text-industrial-copper-500 focus:ring-industrial-copper-500"
                                     />
                                 </th>
                                 <th className="p-4 font-mono">Name</th>
@@ -232,12 +228,12 @@ export function AdminDashboard() {
                         <tbody className="divide-y divide-industrial-concrete/30">
                             {users.map((u) => (
                                 <tr key={u.pid} className="hover:bg-industrial-steel-800/50 transition-colors">
-                                    <td className="p-4 text-center">
+                                    <td className="p-4">
                                         <input
                                             type="checkbox"
-                                            checked={selectedUserIds.includes(u.pid)}
-                                            onChange={() => handleSelectUser(u.pid)}
-                                            className="rounded border-industrial-concrete bg-industrial-steel-800 text-industrial-copper-500 focus:ring-industrial-copper-500/50"
+                                            checked={selectedUsers.has(u.pid)}
+                                            onChange={() => toggleSelectUser(u.pid)}
+                                            className="rounded border-industrial-concrete bg-industrial-steel-900 text-industrial-copper-500 focus:ring-industrial-copper-500"
                                         />
                                     </td>
                                     <td className="p-4 font-medium text-neutral-200">{u.name}</td>
@@ -277,7 +273,7 @@ export function AdminDashboard() {
                                             </button>
                                         )}
                                         <button
-                                            onClick={() => handleDeleteUser(u.pid)}
+                                            onClick={() => handleDelete(u.pid)}
                                             className="px-3 py-1 text-xs bg-industrial-steel-800 hover:bg-red-900/30 hover:text-red-400 text-industrial-steel-300 border border-industrial-concrete hover:border-red-800/50 rounded-sm transition-colors uppercase"
                                             title="Delete User"
                                         >

@@ -7,6 +7,7 @@ export { CancelablePromise, CancelError } from './core/CancelablePromise';
 export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
+export type { ApiKeyResponse } from './models/ApiKeyResponse';
 export type { BlobResponse } from './models/BlobResponse';
 export type { ChatParams } from './models/ChatParams';
 export type { CreateProjectParams } from './models/CreateProjectParams';

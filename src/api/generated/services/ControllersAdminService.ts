@@ -23,14 +23,14 @@ export class ControllersAdminService {
     }
     /**
      * @param id User PID
-     * @returns UserResponse Get user
+     * @returns any User deleted
      * @throws ApiError
      */
-    public static getUser(
+    public static removeUser(
         id: string,
-    ): CancelablePromise<UserResponse> {
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'GET',
+            method: 'DELETE',
             url: '/api/admin/users/{id}',
             path: {
                 'id': id,
@@ -43,14 +43,14 @@ export class ControllersAdminService {
     }
     /**
      * @param id User PID
-     * @returns any User deleted
+     * @returns UserResponse Get user
      * @throws ApiError
      */
-    public static deleteUser(
+    public static getUser(
         id: string,
-    ): CancelablePromise<any> {
+    ): CancelablePromise<UserResponse> {
         return __request(OpenAPI, {
-            method: 'DELETE',
+            method: 'GET',
             url: '/api/admin/users/{id}',
             path: {
                 'id': id,

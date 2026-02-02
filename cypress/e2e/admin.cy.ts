@@ -194,12 +194,12 @@ describe('Admin Dashboard', () => {
     cy.visit('/admin');
     cy.wait('@getUsers');
 
-    cy.contains('tr', 'User To Delete').within(() => {
-        cy.get('button[title="Delete User"]').click();
-    });
-
     // Confirm dialog
     cy.on('window:confirm', () => true);
+
+    cy.contains('tr', 'User To Delete').within(() => {
+        cy.contains('button', 'Delete').should('be.visible').click();
+    });
 
     cy.wait('@deleteUser');
   });
@@ -213,13 +213,14 @@ describe('Admin Dashboard', () => {
     cy.intercept('GET', '/api/admin/users', {
         statusCode: 200,
         body: [
-            { name: 'User 1', email: 'u1@example.com', role: 'user', pid: 'u1-pid', id: 10, created_at: '2023-01-10' },
-            { name: 'User 2', email: 'u2@example.com', role: 'user', pid: 'u2-pid', id: 11, created_at: '2023-01-11' }
+            { name: 'User 1', email: 'user1@example.com', role: 'user', pid: 'pid-1', id: 1 },
+            { name: 'User 2', email: 'user2@example.com', role: 'user', pid: 'pid-2', id: 2 },
+            { name: 'User 3', email: 'user3@example.com', role: 'user', pid: 'pid-3', id: 3 }
         ]
     }).as('getUsers');
 
-    cy.intercept('DELETE', '/api/admin/users/u1-pid', { statusCode: 200, body: {} }).as('deleteU1');
-    cy.intercept('DELETE', '/api/admin/users/u2-pid', { statusCode: 200, body: {} }).as('deleteU2');
+    cy.intercept('DELETE', '/api/admin/users/pid-1', { statusCode: 200, body: {} }).as('deleteUser1');
+    cy.intercept('DELETE', '/api/admin/users/pid-2', { statusCode: 200, body: {} }).as('deleteUser2');
 
     cy.visit('/login');
     cy.get('input[type="email"]').type('admin@example.com');
@@ -230,16 +231,21 @@ describe('Admin Dashboard', () => {
     cy.visit('/admin');
     cy.wait('@getUsers');
 
-    // Select all
-    cy.get('thead input[type="checkbox"]').click();
-
-    // Click delete selected
-    cy.contains('Delete Selected').click();
-
     // Confirm dialog
     cy.on('window:confirm', () => true);
 
-    cy.wait('@deleteU1');
-    cy.wait('@deleteU2');
+    // Select User 1 and User 2
+    cy.contains('tr', 'User 1').within(() => {
+        cy.get('input[type="checkbox"]').check();
+    });
+    cy.contains('tr', 'User 2').within(() => {
+        cy.get('input[type="checkbox"]').check();
+    });
+
+    // Check that button appears and click it
+    cy.contains('button', 'Delete Selected (2)').should('be.visible').click();
+
+    cy.wait('@deleteUser1');
+    cy.wait('@deleteUser2');
   });
 });

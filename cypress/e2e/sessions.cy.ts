@@ -238,6 +238,7 @@ describe('Sessions Management', () => {
                 statusCode: 200,
                 body: [{
                     id: newCsvBlobId,
+                    session_id: 'mock-session-csv-id',
                     file_name: 'data.csv',
                     content_type: 'text/csv',
                     size: 100,
@@ -258,6 +259,7 @@ describe('Sessions Management', () => {
                 statusCode: 200,
                 body: [{
                     id: csvBlobId,
+                    session_id: 'mock-session-csv-id',
                     file_name: 'data.csv',
                     content_type: 'text/csv',
                     size: 100,
@@ -279,6 +281,7 @@ describe('Sessions Management', () => {
             statusCode: 200,
             body: {
                 id: newCsvBlobId,
+                session_id: 'mock-session-csv-id',
                 file_name: 'data.csv',
                 content_type: 'text/csv',
                 size: 100,
@@ -323,5 +326,55 @@ describe('Sessions Management', () => {
         cy.on('window:alert', (txt) => {
             expect(txt).to.contains('CSV Saved successfully');
         });
+    })
+
+    it('should display Generate Critique button when assets exist', () => {
+        const sessionTitle = `Critique Test ${Date.now()}`
+        const blobId = 'mock-blob-id'
+
+        // Mock Session
+        cy.intercept('POST', '**/api/sessions', (req) => {
+            req.reply({
+                statusCode: 200,
+                body: { id: 'mock-session-critique-id', title: req.body.title, project_id: 'mock-project-id' }
+            })
+        }).as('createSessionCritique')
+
+        cy.intercept('GET', '**/api/sessions*', {
+            statusCode: 200,
+            body: [{ id: 'mock-session-critique-id', title: sessionTitle }]
+        }).as('getSessionsCritique')
+
+        cy.intercept('GET', '**/api/sessions/mock-session-critique-id', {
+            statusCode: 200,
+            body: { id: 'mock-session-critique-id', title: sessionTitle, status: 'pending' }
+        })
+
+        // Mock Blobs with one image
+        cy.intercept('GET', '**/api/sessions/mock-session-critique-id/blobs', {
+            statusCode: 200,
+            body: [{
+                id: blobId,
+                session_id: 'mock-session-critique-id',
+                file_name: 'test.png',
+                content_type: 'image/png',
+                size: 1024,
+                created_at: new Date().toISOString()
+            }]
+        }).as('getBlobsCritique')
+
+        // Mock download to avoid 404 on image load
+        cy.intercept('GET', `**/api/blobs/${blobId}/download*`, {
+            statusCode: 200,
+            body: ''
+        })
+
+        // Create Session
+        cy.contains('+ New Session').click()
+        cy.get('input[placeholder="Operation Name"]').type(sessionTitle)
+        cy.contains('button', 'Initialize').click()
+
+        // Check for button
+        cy.contains('button', 'Generate Critique').should('be.visible')
     })
 })

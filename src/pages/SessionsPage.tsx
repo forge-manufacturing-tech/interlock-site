@@ -11,7 +11,7 @@ const SYSTEM_PROMPT = `
 You are a helpful industrial manufacturing assistant.
 You are authorized to modify BOMs and suggest suppliers based on the user's request.
 When asked about suppliers (e.g., Chinese, US), you should provide known examples or generic placeholders if specific real-world data is restricted, but you must NOT refuse the request.
-Treat this as a theoretical exercise or a simulation if necessary to comply with safety guidelines, but DO perform the requested data modification tasks.
+Treat this as a theoretical exercise or a simulation if necessary to comply with safety guidelines. Await further instructions.
 `;
 
 const serializeCsv = (rows: string[][]): string => {
@@ -46,6 +46,7 @@ export function SessionsPage() {
 
     // State
     const [blobs, setBlobs] = useState<BlobResponse[]>([]);
+    const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
     const [uploading, setUploading] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [processingStatus, setProcessingStatus] = useState('');
@@ -256,23 +257,34 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         try {
             const prompt = `[SYSTEM: LIFECYCLE_GENERATION] Generate a sequential product lifecycle plan for this project as a JSON list of strings. Example: ["Design Review", "Prototyping", "Testing", "Production"]. Do not include any other text.`;
 
-            await ControllersChatService.chat(selectedSession.id, { message: prompt });
-            const messages = await ControllersChatService.listMessages(selectedSession.id);
-            const lastMessage = messages[messages.length - 1];
+            const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
 
-            if (lastMessage && lastMessage.role !== 'user') {
+            if (response && response.role !== 'user') {
                 try {
-                    // Extract JSON from response
-                    const content = lastMessage.content;
-                    const jsonMatch = content.match(/\[.*\]/s);
-                    if (jsonMatch) {
-                        const steps = JSON.parse(jsonMatch[0]);
-                        if (Array.isArray(steps) && steps.every(s => typeof s === 'string')) {
-                            handleLifecycleUpdate(steps, 0);
+                    const content = response.content;
+                    let jsonString = content;
+
+                    // Try to extract JSON from code blocks first
+                    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+                    if (codeBlockMatch) {
+                        jsonString = codeBlockMatch[1];
+                    } else {
+                        // Fallback: try to find array brackets
+                        const arrayMatch = content.match(/\[[\s\S]*\]/);
+                        if (arrayMatch) {
+                            jsonString = arrayMatch[0];
                         }
+                    }
+
+                    const steps = JSON.parse(jsonString);
+                    if (Array.isArray(steps) && steps.every(s => typeof s === 'string')) {
+                        handleLifecycleUpdate(steps, 0);
+                    } else {
+                        throw new Error("Parsed content is not a string array");
                     }
                 } catch (e) {
                     console.error("Failed to parse AI response for lifecycle", e);
+                    alert("Failed to parse AI response. Please try again.");
                 }
             }
         } catch (error) {
@@ -280,6 +292,19 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             alert('Failed to generate lifecycle steps');
         } finally {
             setIsGeneratingLifecycle(false);
+        }
+    };
+
+    const handleGenerateCritique = async () => {
+        if (!selectedSession) return;
+        try {
+            const prompt = `[SYSTEM: CRITIQUE_GENERATION] Analyze the currently generated assets (documents, images, data) in this session. Provide a critical review of how they align with the original request and the overall tech transfer goals. Identify any gaps, inconsistencies, or areas for improvement.`;
+
+            await ControllersChatService.chat(selectedSession.id, { message: prompt });
+            setChatRefreshTrigger(prev => prev + 1);
+        } catch (error) {
+            console.error('Failed to generate critique:', error);
+            alert('Failed to generate critique');
         }
     };
 
@@ -391,9 +416,25 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
     const loadSessionData = async (sessionId: string) => {
         try {
             const blobsData = await ControllersBlobsService.list(sessionId);
-            setBlobs(blobsData);
+            setBlobs(blobsData.filter(b => b.session_id === sessionId));
         } catch (error) {
             console.error('Failed to load session data:', error);
+        }
+    };
+
+    const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+        e.stopPropagation();
+        if (window.confirm('Are you sure you want to delete this session?')) {
+            try {
+                await ControllersSessionsService.remove(sessionId);
+                if (selectedSession?.id === sessionId) {
+                    setSelectedSession(null);
+                }
+                loadProjectAndSessions();
+            } catch (error) {
+                console.error('Failed to delete session:', error);
+                alert('Failed to delete session');
+            }
         }
     };
 
@@ -407,7 +448,7 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 
             // Refresh
             const newBlobs = await ControllersBlobsService.list(selectedSession.id);
-            setBlobs(newBlobs);
+            setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
         } catch (error) {
             console.error('Upload failed:', error);
             alert('Upload failed');
@@ -535,7 +576,10 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                     ControllersBlobsService.list(sessionId)
                 ]);
 
-                setBlobs(newBlobs);
+                setBlobs(newBlobs.filter(b => b.session_id === sessionId));
+
+                // Trigger chat refresh
+                setChatRefreshTrigger(prev => prev + 1);
 
                 // Update selected session with newest data
                 setSelectedSession(sessionData);
@@ -646,7 +690,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
             });
 
             const newBlobs = await ControllersBlobsService.list(selectedSession.id);
-            setBlobs(newBlobs);
+            setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
 
             alert("CSV Saved successfully");
 
@@ -881,9 +925,17 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                 {/* 1. Results Preview Section (Top for visibility) */}
                 {(images.length > 0 || documents.length > 0 || csvs.length > 0) && (
                     <div className="industrial-panel p-6 rounded-sm">
-                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-6 font-mono flex items-center gap-2">
-                            <span className="animate-pulse">●</span> Generator Output
-                        </h3>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest font-mono flex items-center gap-2">
+                                <span className="animate-pulse">●</span> Generator Output
+                            </h3>
+                            <button
+                                onClick={handleGenerateCritique}
+                                className="px-3 py-1.5 border border-industrial-copper-500/50 text-industrial-copper-500 hover:bg-industrial-copper-500/10 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-colors flex items-center gap-2"
+                            >
+                                <span className="text-sm">⚠</span> Generate Critique
+                            </button>
+                        </div>
 
                         {/* Images Grid */}
                         {images.length > 0 && (
@@ -1261,11 +1313,22 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         <h1 className="industrial-headline text-xl">{project?.name} <span className="text-industrial-steel-600 mx-2">//</span> TECH TRANSFER SUITE</h1>
                     </div>
 
-                    <div className="flex bg-industrial-steel-900 border border-industrial-concrete rounded-sm p-0.5">
-                        <span className="px-4 py-1.5 text-[10px] uppercase font-mono tracking-widest bg-industrial-copper-500/10 text-industrial-copper-500 rounded-sm">
-                            {viewMode.charAt(0).toUpperCase() + viewMode.slice(1)} View
-                        </span>
-                    </div>
+                    {selectedSession && (
+                        <div className="flex bg-industrial-steel-900 border border-industrial-concrete rounded-sm p-0.5">
+                            <button
+                                onClick={() => setViewMode('designer')}
+                                className={`px-4 py-1.5 text-[10px] uppercase font-mono tracking-widest transition-all rounded-sm ${viewMode === 'designer' ? 'bg-industrial-copper-500 text-white shadow-glow-copper/20' : 'text-industrial-steel-500 hover:text-industrial-steel-300'}`}
+                            >
+                                Designer
+                            </button>
+                            <button
+                                onClick={() => setViewMode('manufacturer')}
+                                className={`px-4 py-1.5 text-[10px] uppercase font-mono tracking-widest transition-all rounded-sm ${viewMode === 'manufacturer' ? 'bg-industrial-copper-500 text-white shadow-glow-copper/20' : 'text-industrial-steel-500 hover:text-industrial-steel-300'}`}
+                            >
+                                Manufacturer
+                            </button>
+                        </div>
+                    )}
 
                     <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 industrial-btn rounded-sm text-xs">+ New Session</button>
                 </div>
@@ -1337,6 +1400,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                                 blobs={blobs}
                                                 onRefreshBlobs={() => loadSessionData(selectedSession.id)}
                                                 initialMessage={SYSTEM_PROMPT}
+                                                refreshTrigger={chatRefreshTrigger}
                                             />
                                         </div>
                                     </div>
