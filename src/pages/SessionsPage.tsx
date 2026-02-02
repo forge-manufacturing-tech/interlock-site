@@ -246,23 +246,34 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         try {
             const prompt = `[SYSTEM: LIFECYCLE_GENERATION] Generate a sequential product lifecycle plan for this project as a JSON list of strings. Example: ["Design Review", "Prototyping", "Testing", "Production"]. Do not include any other text.`;
 
-            await ControllersChatService.chat(selectedSession.id, { message: prompt });
-            const messages = await ControllersChatService.listMessages(selectedSession.id);
-            const lastMessage = messages[messages.length - 1];
+            const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
 
-            if (lastMessage && lastMessage.role !== 'user') {
+            if (response && response.role !== 'user') {
                 try {
-                    // Extract JSON from response
-                    const content = lastMessage.content;
-                    const jsonMatch = content.match(/\[.*\]/s);
-                    if (jsonMatch) {
-                        const steps = JSON.parse(jsonMatch[0]);
-                        if (Array.isArray(steps) && steps.every(s => typeof s === 'string')) {
-                            handleLifecycleUpdate(steps, 0);
+                    const content = response.content;
+                    let jsonString = content;
+
+                    // Try to extract JSON from code blocks first
+                    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+                    if (codeBlockMatch) {
+                        jsonString = codeBlockMatch[1];
+                    } else {
+                        // Fallback: try to find array brackets
+                        const arrayMatch = content.match(/\[[\s\S]*\]/);
+                        if (arrayMatch) {
+                            jsonString = arrayMatch[0];
                         }
+                    }
+
+                    const steps = JSON.parse(jsonString);
+                    if (Array.isArray(steps) && steps.every(s => typeof s === 'string')) {
+                        handleLifecycleUpdate(steps, 0);
+                    } else {
+                        throw new Error("Parsed content is not a string array");
                     }
                 } catch (e) {
                     console.error("Failed to parse AI response for lifecycle", e);
+                    alert("Failed to parse AI response. Please try again.");
                 }
             }
         } catch (error) {
@@ -270,6 +281,19 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             alert('Failed to generate lifecycle steps');
         } finally {
             setIsGeneratingLifecycle(false);
+        }
+    };
+
+    const handleGenerateCritique = async () => {
+        if (!selectedSession) return;
+        try {
+            const prompt = `[SYSTEM: CRITIQUE_GENERATION] Analyze the currently generated assets (documents, images, data) in this session. Provide a critical review of how they align with the original request and the overall tech transfer goals. Identify any gaps, inconsistencies, or areas for improvement.`;
+
+            await ControllersChatService.chat(selectedSession.id, { message: prompt });
+            setChatRefreshTrigger(prev => prev + 1);
+        } catch (error) {
+            console.error('Failed to generate critique:', error);
+            alert('Failed to generate critique');
         }
     };
 
@@ -890,9 +914,17 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                 {/* 1. Results Preview Section (Top for visibility) */}
                 {(images.length > 0 || documents.length > 0 || csvs.length > 0) && (
                     <div className="industrial-panel p-6 rounded-sm">
-                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-6 font-mono flex items-center gap-2">
-                            <span className="animate-pulse">●</span> Generator Output
-                        </h3>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest font-mono flex items-center gap-2">
+                                <span className="animate-pulse">●</span> Generator Output
+                            </h3>
+                            <button
+                                onClick={handleGenerateCritique}
+                                className="px-3 py-1.5 border border-industrial-copper-500/50 text-industrial-copper-500 hover:bg-industrial-copper-500/10 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-colors flex items-center gap-2"
+                            >
+                                <span className="text-sm">⚠</span> Generate Critique
+                            </button>
+                        </div>
 
                         {/* Images Grid */}
                         {images.length > 0 && (
