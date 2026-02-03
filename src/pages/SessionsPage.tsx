@@ -586,20 +586,27 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 
             for (const file of files) {
                 // Check for existing file with same name to overwrite
-                const existing = blobs.find(b => b.file_name === file.name);
+                const existingList = blobs.filter(b => b.file_name === file.name);
                 let preservedComments: string[] | undefined;
 
-                if (existing) {
-                    console.log(`Overwriting existing file: ${file.name}`);
-                    if (updatedComments[existing.id]) {
-                        preservedComments = updatedComments[existing.id];
-                        delete updatedComments[existing.id];
+                if (existingList.length > 0) {
+                    console.log(`Overwriting existing file(s): ${file.name}`);
+                    const firstExisting = existingList[0];
+                    if (updatedComments[firstExisting.id]) {
+                        preservedComments = updatedComments[firstExisting.id];
+                        // Cleanup comments
+                        existingList.forEach(b => {
+                            if (updatedComments[b.id]) delete updatedComments[b.id];
+                        });
                         commentsModified = true;
                     }
-                    try {
-                        await ControllersBlobsService.remove(existing.id);
-                    } catch (err) {
-                        console.warn('Failed to remove existing blob (may have been removed already):', err);
+
+                    for (const existing of existingList) {
+                        try {
+                            await ControllersBlobsService.remove(existing.id);
+                        } catch (err) {
+                            console.warn('Failed to remove existing blob (may have been removed already):', err);
+                        }
                     }
                 }
 
@@ -942,10 +949,11 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
             if (!uploadRes.ok) throw new Error("Failed to save metadata.json");
 
-            // 2. Delete old blob if it exists and is different from the new one
-            if (metadataBlobId) {
+            // 2. Delete old blob(s) if they exist (cleanup all duplicates)
+            const oldMetadataBlobs = blobs.filter(b => b.file_name === 'metadata.json');
+            for (const b of oldMetadataBlobs) {
                 try {
-                    await ControllersBlobsService.remove(metadataBlobId);
+                    await ControllersBlobsService.remove(b.id);
                 } catch (e) {
                     console.warn("Failed to delete old metadata blob, might already be removed", e);
                 }
