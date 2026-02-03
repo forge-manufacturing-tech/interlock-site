@@ -78,6 +78,7 @@ export function SessionsPage() {
     const [metadataEditorValue, setMetadataEditorValue] = useState<string>('');
     const [metadataBlobId, setMetadataBlobId] = useState<string | null>(null);
     const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+    const [isSyncingMetadata, setIsSyncingMetadata] = useState(false);
 
     // Manual Text Entry State
     const [showTextEntryModal, setShowTextEntryModal] = useState(false);
@@ -977,6 +978,22 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
         }
     };
 
+    const handleSyncMetadata = async () => {
+        if (!selectedSession) return;
+        setIsSyncingMetadata(true);
+        try {
+            const prompt = `${SYSTEM_PROMPT}\n\n[SYSTEM: METADATA_SYNC] Analyze all available files (blobs) in the session. Update 'metadata.json' to reflect the latest information found in these files. Ensure product_definition, lifecycle, and bom_summary are accurate.`;
+            await ControllersChatService.chat(selectedSession.id, { message: prompt });
+            setChatRefreshTrigger(prev => prev + 1);
+            await loadSessionData(selectedSession.id);
+        } catch (error) {
+            console.error('Failed to sync metadata:', error);
+            alert('Failed to sync metadata');
+        } finally {
+            setIsSyncingMetadata(false);
+        }
+    };
+
     const handleSaveMetadata = async () => {
         if (!selectedSession || !metadataJson) return;
 
@@ -1615,6 +1632,27 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                     onGenerate={handleLifecycleGenerate}
                     isGenerating={isGeneratingLifecycle || processing || selectedSession?.status === 'processing'}
                 />
+
+                <div className="industrial-panel p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest flex items-center gap-2">
+                            <span className="text-xl">❖</span> Core Metadata
+                        </h3>
+                        <button
+                            onClick={handleSyncMetadata}
+                            disabled={isSyncingMetadata}
+                            className="px-3 py-1.5 border border-industrial-copper-500/50 text-industrial-copper-500 hover:bg-industrial-copper-500/10 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {isSyncingMetadata ? 'Syncing...' : 'Sync Metadata'}
+                            <span className="text-sm">↻</span>
+                        </button>
+                    </div>
+                    <div className="bg-black/40 p-4 border border-industrial-concrete rounded-sm overflow-auto max-h-60 custom-scrollbar">
+                        <pre className="text-[10px] font-mono text-industrial-steel-300 whitespace-pre-wrap">
+                            {metadataJson ? JSON.stringify(metadataJson, null, 2) : "No metadata initialized."}
+                        </pre>
+                    </div>
+                </div>
 
                 {/* 1. Results Preview Section (Top for visibility) */}
                 {(images.length > 0 || documents.length > 0 || csvs.length > 0) && (
