@@ -79,6 +79,12 @@ export function SessionsPage() {
     const [metadataBlobId, setMetadataBlobId] = useState<string | null>(null);
     const [isSavingMetadata, setIsSavingMetadata] = useState(false);
 
+    // Manual Text Entry State
+    const [showTextEntryModal, setShowTextEntryModal] = useState(false);
+    const [textEntryTitle, setTextEntryTitle] = useState('');
+    const [textEntryContent, setTextEntryContent] = useState('');
+    const [isSavingTextEntry, setIsSavingTextEntry] = useState(false);
+
     // Ref to track current session ID for async operations
     const selectedSessionIdRef = useRef<string | null>(null);
     // Ref to prevent double-submit race conditions
@@ -571,6 +577,54 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
                 console.error('Failed to delete session:', error);
                 alert('Failed to delete session');
             }
+        }
+    };
+
+    const handleSaveTextEntry = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedSession || !textEntryTitle.trim() || !textEntryContent.trim()) return;
+
+        try {
+            setIsSavingTextEntry(true);
+
+            // Ensure filename has .txt extension
+            let fileName = textEntryTitle.trim();
+            if (!fileName.toLowerCase().endsWith('.txt') && !fileName.toLowerCase().endsWith('.md')) {
+                fileName += '.txt';
+            }
+
+            const file = new File([textEntryContent], fileName, { type: 'text/plain' });
+
+            // Check for existing file with same name
+            const existing = blobs.find(b => b.file_name === fileName);
+            if (existing) {
+                if (!window.confirm(`File "${fileName}" already exists. Overwrite?`)) {
+                    setIsSavingTextEntry(false);
+                    return;
+                }
+                try {
+                    await ControllersBlobsService.remove(existing.id);
+                } catch (err) {
+                    console.warn('Failed to remove existing blob:', err);
+                }
+            }
+
+            await ControllersBlobsService.upload(selectedSession.id, { file });
+
+            // Refresh blobs
+            const newBlobs = await ControllersBlobsService.list(selectedSession.id);
+            setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
+
+            // Reset and close
+            setShowTextEntryModal(false);
+            setTextEntryTitle('');
+            setTextEntryContent('');
+
+        } catch (error) {
+            console.error('Failed to save text entry:', error);
+            alert('Failed to save text note');
+        } finally {
+            setIsSavingTextEntry(false);
         }
     };
 
@@ -1740,10 +1794,18 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                         </button>
                                     </div>
                                 ))}
-                                <label className="flex items-center justify-center p-3 border border-dashed border-industrial-concrete hover:border-industrial-copper-500/50 rounded-sm cursor-pointer transition-colors group mt-2">
-                                    <span className="text-xs font-mono text-industrial-steel-500 group-hover:text-industrial-copper-500 uppercase">+ Add Source File</span>
-                                    <input type="file" className="hidden" onChange={handleFileUpload} multiple />
-                                </label>
+                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                    <label className="flex items-center justify-center p-3 border border-dashed border-industrial-concrete hover:border-industrial-copper-500/50 rounded-sm cursor-pointer transition-colors group">
+                                        <span className="text-xs font-mono text-industrial-steel-500 group-hover:text-industrial-copper-500 uppercase">+ Add File</span>
+                                        <input type="file" className="hidden" onChange={handleFileUpload} multiple />
+                                    </label>
+                                    <button
+                                        onClick={() => setShowTextEntryModal(true)}
+                                        className="flex items-center justify-center p-3 border border-dashed border-industrial-concrete hover:border-industrial-copper-500/50 rounded-sm cursor-pointer transition-colors group"
+                                    >
+                                        <span className="text-xs font-mono text-industrial-steel-500 group-hover:text-industrial-copper-500 uppercase">+ Add Note</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -2058,6 +2120,53 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                             <div className="flex gap-3">
                                 <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-2 bg-industrial-steel-800 hover:bg-industrial-steel-700 rounded-sm font-bold text-xs uppercase">Cancel</button>
                                 <button type="submit" className="flex-1 px-4 py-2 industrial-btn rounded-sm text-xs">Initialize</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Text Entry Modal */}
+            {showTextEntryModal && (
+                <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm" onClick={() => setShowTextEntryModal(false)}>
+                    <div className="industrial-panel rounded-sm p-6 w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+                        <h3 className="industrial-headline text-xl mb-4">Add Manual Note</h3>
+                        <form onSubmit={handleSaveTextEntry} className="space-y-4">
+                            <div>
+                                <label className="block text-[10px] font-mono text-industrial-steel-400 uppercase tracking-widest mb-2">Note Title / Filename</label>
+                                <input
+                                    type="text"
+                                    value={textEntryTitle}
+                                    onChange={(e) => setTextEntryTitle(e.target.value)}
+                                    className="w-full px-4 py-2 industrial-input rounded-sm font-mono text-sm"
+                                    placeholder="e.g. User Requirements"
+                                    autoFocus
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-mono text-industrial-steel-400 uppercase tracking-widest mb-2">Content</label>
+                                <textarea
+                                    value={textEntryContent}
+                                    onChange={(e) => setTextEntryContent(e.target.value)}
+                                    className="w-full h-64 px-4 py-4 industrial-input rounded-sm font-mono text-xs resize-none leading-relaxed"
+                                    placeholder="Enter unstructured text data here..."
+                                />
+                            </div>
+                            <div className="flex gap-3 justify-end pt-4 border-t border-industrial-concrete">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowTextEntryModal(false)}
+                                    className="px-6 py-2 bg-industrial-steel-800 hover:bg-industrial-steel-700 rounded-sm font-bold text-xs uppercase transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSavingTextEntry || !textEntryTitle.trim() || !textEntryContent.trim()}
+                                    className="px-6 py-2 industrial-btn rounded-sm text-xs flex items-center gap-2"
+                                >
+                                    {isSavingTextEntry ? 'Saving...' : 'Save Note'}
+                                </button>
                             </div>
                         </form>
                     </div>
