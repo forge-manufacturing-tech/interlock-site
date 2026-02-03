@@ -10,15 +10,23 @@ type WorkflowStage = 'ingestion' | 'verification' | 'complete';
 
 const SYSTEM_PROMPT = `
 [SYSTEM: MANUFACTURING_AGENT]
-You are a helpful industrial manufacturing assistant.
-You are authorized to modify BOMs and suggest suppliers based on the user's request.
-When asked about suppliers (e.g., Chinese, US), you should provide known examples or generic placeholders if specific real-world data is restricted, but you must NOT refuse the request.
-Treat this as a theoretical exercise or a simulation if necessary to comply with safety guidelines.
+You are a helpful industrial manufacturing assistant specialized in Tech Transfer.
 
-NEW CAPABILITIES:
+CENTRAL METADATA OBJECT:
+- There is a file named 'metadata.json' which acts as the 'Source of Truth' for this Tech Transfer session.
+- Your PRIMARY GOAL is to populate and refine this 'metadata.json' file based on the documents you read.
+- This JSON object is what the manufacturer will use to validate the project. It should contain:
+    - Product specifications (dimensions, weight, materials).
+    - BOM (Bill of Materials) summary.
+    - Manufacturing steps or Lifecycle stages.
+    - Critical quality attributes (CQAs).
+    - Supplier/Risk assessment summary.
+- ALWAYS try to keep 'metadata.json' up to date. If you find new information, update 'metadata.json' using 'create_text_file'.
+
+GUIDELINES:
 1. FILE MANAGEMENT: If you upload or generate a file with the same name as an existing one, it will automatically overwrite the old version.
-2. DATA ENRICHMENT: You can use "Magic Fill" to automatically populate missing CSV data (Price, Lead Time, etc) based on best-guess estimates.
-3. VERIFICATION: The user can force-override verification checks if your analysis is too conservative. You can be more pragmatic in your "Risk Scans".
+2. DATA ENRICHMENT: You can use "Magic Fill" to automatically populate missing CSV data based on best-guess estimates.
+3. VERIFICATION: The user can force-override verification checks. Be pragmatic in your "Risk Scans".
 `;
 
 const serializeCsv = (rows: string[][]): string => {
@@ -61,13 +69,15 @@ export function SessionsPage() {
     const [processingStatus, setProcessingStatus] = useState('');
     const [wizardStep, setWizardStep] = useState(1);
     const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
-    const [targetColumns, setTargetColumns] = useState('Part Number, Description, Quantity, Manufacturer, Price');
+    const [targetColumns] = useState('Part Number, Description, Quantity, Manufacturer, Price');
     const [wizardStartType, setWizardStartType] = useState<'bom' | 'description' | 'sketch' | null>(null);
     const [productDescription, setProductDescription] = useState('');
 
     // Verification State
-    const [verificationStatus, setVerificationStatus] = useState<'unverified' | 'loading' | 'verified' | 'flagged'>('unverified');
-    const [verificationIssues, setVerificationIssues] = useState<string[]>([]);
+    const [metadataJson, setMetadataJson] = useState<any>(null);
+    const [metadataEditorValue, setMetadataEditorValue] = useState<string>('');
+    const [metadataBlobId, setMetadataBlobId] = useState<string | null>(null);
+    const [isSavingMetadata, setIsSavingMetadata] = useState(false);
 
     // Ref to track current session ID for async operations
     const selectedSessionIdRef = useRef<string | null>(null);
@@ -183,8 +193,9 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         setLifecycleCurrentStep(0);
         setProcessing(false);
         setProcessingStatus('');
-        setVerificationStatus('unverified');
-        setVerificationIssues([]);
+        setMetadataJson(null);
+        setMetadataEditorValue('');
+        setMetadataBlobId(null);
 
         if (selectedSession) {
             console.log(`[SessionsPage] Switching to session ${selectedSession.id}`);
@@ -324,7 +335,7 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         if (!selectedSession) return;
         setIsGeneratingLifecycle(true);
         try {
-            const prompt = `[SYSTEM: LIFECYCLE_GENERATION] Generate a sequential product lifecycle plan for this project as a JSON list of strings. Example: ["Design Review", "Prototyping", "Testing", "Production"]. Do not include any other text.`;
+            const prompt = `${SYSTEM_PROMPT}\n\n[SYSTEM: LIFECYCLE_GENERATION] Generate a sequential product lifecycle plan for this project as a JSON list of strings. Example: ["Design Review", "Prototyping", "Testing", "Production"]. Do not include any other text.`;
 
             const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
 
@@ -376,64 +387,12 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         }
     };
 
-    const handleRunSupplierAnalysis = async () => {
-        if (!selectedSession) return;
-        setVerificationStatus('loading');
-        setVerificationIssues([]);
 
-        try {
-            const prompt = `[SYSTEM: VERIFICATION] Verify the manufacturing data.
-            1. Use the 'list_files' tool to find the BOM or data file (CSV or Excel).
-            2. Use 'read_file' (or 'excel_to_csv' if Excel) to read its content.
-            3. Analyze the content for supplier details, lead times, and MOQs.
-            
-            CRITICAL INSTRUCTION:
-            If specific supplier names, contact info, lead times, MOQs, and locations are present and sufficient, reply ONLY with "[VERIFIED]".
-            If ANY are missing or generic, do NOT include "[VERIFIED]". List specific missing items as bullet points.
-            `;
-
-            const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
-
-            if (response && response.role !== 'user') {
-                const cleanContent = response.content.replace(/^Final Answer:\s*/i, '').trim();
-
-                if (cleanContent.includes('[VERIFIED]')) {
-                    setVerificationStatus('verified');
-                } else {
-                    // Extract bullet points
-                    let issues = cleanContent.split('\n')
-                        .map(line => line.trim())
-                        .filter(line => line.startsWith('*') || line.startsWith('-') || line.match(/^\d+\./))
-                        .map(line => line.replace(/^[\*\-\d\.]+\s*/, ''));
-
-                    // If regex extraction fails to find bullets, try splitting by newlines and filtering empty strings if the content is short
-                    if (issues.length === 0 && cleanContent.length > 0) {
-                        // Fallback: take non-empty lines that don't look like chat fluff
-                        issues = cleanContent.split('\n').map(l => l.trim()).filter(l => l.length > 5 && !l.startsWith("Reference:"));
-                    }
-
-                    if (issues.length > 0) {
-                        setVerificationIssues(issues);
-                        setVerificationStatus('flagged');
-                    } else {
-                        // If still no issues found but not verified, trust the raw content
-                        setVerificationIssues([cleanContent]);
-                        setVerificationStatus('flagged');
-                    }
-                }
-                setChatRefreshTrigger(prev => prev + 1);
-            }
-        } catch (error) {
-            console.error('Analysis failed:', error);
-            setVerificationStatus('unverified');
-            alert('Failed to run analysis');
-        }
-    };
 
     const handleGenerateCritique = async () => {
         if (!selectedSession) return;
         try {
-            const prompt = `[SYSTEM: CRITIQUE_GENERATION] Analyze the currently generated assets (documents, images, data) in this session. Provide a critical review of how they align with the original request and the overall tech transfer goals. Identify any gaps, inconsistencies, or areas for improvement.`;
+            const prompt = `${SYSTEM_PROMPT}\n\n[SYSTEM: CRITIQUE_GENERATION] Analyze the currently generated assets (documents, images, data) in this session. Provide a critical review of how they align with the original request and the overall tech transfer goals. Identify any gaps, inconsistencies, or areas for improvement.`;
 
             await ControllersChatService.chat(selectedSession.id, { message: prompt });
             setChatRefreshTrigger(prev => prev + 1);
@@ -509,6 +468,31 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             document.removeEventListener('mouseup', handleResizeEnd);
         };
     }, [isResizing, chatPanelWidth]);
+
+    // Load metadata.json
+    useEffect(() => {
+        const metadataBlob = blobs.find(b => b.file_name === 'metadata.json');
+        if (metadataBlob) {
+            setMetadataBlobId(metadataBlob.id);
+            const token = localStorage.getItem('token');
+            fetch(`${import.meta.env.VITE_API_URL}/api/blobs/${metadataBlob.id}/download`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error("Metadata not found");
+                    return res.json();
+                })
+                .then(data => {
+                    setMetadataJson(data);
+                    setMetadataEditorValue(JSON.stringify(data, null, 2));
+                })
+                .catch(err => console.error('Failed to load metadata.json', err));
+        } else {
+            setMetadataJson(null);
+            setMetadataEditorValue('');
+            setMetadataBlobId(null);
+        }
+    }, [blobs]);
 
     // Load CSV Content
     useEffect(() => {
@@ -699,6 +683,31 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         // 1. Prepare Prompts
         const prompts: string[] = [];
 
+        // Initial Metadata creation
+        const initialMetadata = {
+            projectId: project?.id,
+            revision: "A.1",
+            status: "DRAFT",
+            product_definition: {
+                description: productDescription || "Extracted from assets",
+                specifications: {}
+            },
+            lifecycle: {
+                stage: "Ingestion",
+                steps: []
+            },
+            bom_summary: {
+                total_parts: 0,
+                critical_items: []
+            },
+            risk_assessment: {
+                score: "Pending",
+                issues: []
+            }
+        };
+
+        prompts.push(`${SYSTEM_PROMPT}\n\n[SYSTEM: METADATA_INIT] Create the initial 'metadata.json' file with the following content: ${JSON.stringify(initialMetadata)}. This file will be the Source of Truth for the project.`);
+
         // Core Analysis & Initialization
         let analysisPrompt = `[SYSTEM: TECH_TRANSFER_INIT]\nGOAL: ${targetColumns}\nINSTRUCTION:\n`;
 
@@ -713,9 +722,10 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             analysisPrompt += `2. Create a 'BOM_Standardized.csv' with columns: ${targetColumns}.\n`;
         }
 
-        analysisPrompt += `3. Create a 'data_summary.csv' of the main parts list.\n`;
-        analysisPrompt += `4. Extract key technical parameters and manufacturing requirements.\n`;
-        analysisPrompt += `5. NOTE: If you generate a file with the same name as an existing one, it will overwrite the old version. Maintain consistent filenames for updates.\n`;
+        analysisPrompt += `3. Sync all extracted information into 'metadata.json'. Ensure the product_definition, lifecycle, and bom_summary fields in 'metadata.json' are fully populated.\n`;
+        analysisPrompt += `4. Create a 'data_summary.csv' of the main parts list.\n`;
+        analysisPrompt += `5. Extract key technical parameters and manufacturing requirements.\n`;
+        analysisPrompt += `6. NOTE: If you generate a file with the same name as an existing one, it will overwrite the old version. Maintain consistent filenames for updates.\n`;
 
         prompts.push(analysisPrompt);
 
@@ -905,52 +915,54 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
             alert("Failed to save CSV");
         }
     };
-    const handleMagicFill = async (blob: BlobResponse) => {
-        if (!selectedSession) return;
-        const currentData = csvData[blob.id];
-        if (!currentData) return;
 
-        setProcessing(true);
+    const handleSaveMetadata = async () => {
+        if (!selectedSession || !metadataJson) return;
 
+        setIsSavingMetadata(true);
         try {
-            // Simple serialization for prompt
-            const info = currentData.map(r => r.join(',')).join('\n');
+            const content = JSON.stringify(metadataJson, null, 2);
+            const file = new File([content], 'metadata.json', { type: 'application/json' });
 
-            const prompt = `[SYSTEM: DATA_ENRICHMENT]
-             I have a CSV file with the following content:
-             ${info}
-             
-             INSTRUCTION:
-             1. Identify any missing or empty values (e.g. Price, Manufacturer, Lead Time).
-             2. Fill them in with realistic "best guess" estimates based on the Description/Part Number.
-             3. Mark estimated values with an asterisk (*).
-             4. Return ONLY the fully completed CSV content. No markdown, no comments.
-             `;
+            const formData = new FormData();
+            formData.append('file', file);
+            const token = localStorage.getItem('token');
 
-            const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
+            // 1. Upload new blob (backend handles overwrites if we delete old one, but actually the storage might just overwrite)
+            // The controller upload() creates a NEW blob record. 
+            // The instructions say "overwrites existing files with same name" but the controller doesn't seem to do that automatically yet?
+            // Wait, Conversation a0e55f93 says user wanted to update logic to overwrite. 
+            // Let me check if I should delete the old one first.
 
-            if (response && response.content) {
-                const cleanCsv = response.content.replace(/```csv/g, '').replace(/```/g, '').trim();
-                // Robust CSV split handling quotes
-                const rows = cleanCsv.split('\n').map(row => {
-                    const matches = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
-                    // Fallback to simple split if regex fails or complicates things too much for simple AI output
-                    return matches ? matches.map(m => m.replace(/^"|"$/g, '')) : row.split(',');
-                });
+            const uploadRes = await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${selectedSession.id}/blobs`, {
+                method: 'POST',
+                body: formData,
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
 
-                setCsvData(prev => ({
-                    ...prev,
-                    [blob.id]: rows
-                }));
-                alert("Magic Fill Applied! Please Review and Save.");
+            if (!uploadRes.ok) throw new Error("Failed to save metadata.json");
+
+            // 2. Delete old blob if it exists and is different from the new one
+            if (metadataBlobId) {
+                try {
+                    await ControllersBlobsService.remove(metadataBlobId);
+                } catch (e) {
+                    console.warn("Failed to delete old metadata blob, might already be removed", e);
+                }
             }
-        } catch (e) {
-            console.error(e);
-            alert("Magic Fill failed");
+
+            const newBlobs = await ControllersBlobsService.list(selectedSession.id);
+            setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
+
+            alert("Metadata saved successfully");
+        } catch (error) {
+            console.error('Failed to save metadata:', error);
+            alert('Failed to save metadata');
         } finally {
-            setProcessing(false);
+            setIsSavingMetadata(false);
         }
     };
+
 
     const handleDownload = async (blob: BlobResponse) => {
         try {
@@ -1116,8 +1128,6 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
     };
 
     const renderVerificationPanel = () => {
-        const csvs = blobs.filter(b => b.content_type === 'text/csv' || b.file_name.toLowerCase().endsWith('.csv'));
-
         return (
             <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6 animate-in slide-in-from-bottom-4 duration-500">
                 <div className="flex justify-between items-center mb-2">
@@ -1140,184 +1150,123 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Lifecycle Verification */}
-                    <div className="industrial-panel p-6">
-                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">1. Product Lifecycle</h3>
-                        <LifecycleTracker
-                            steps={lifecycleSteps}
-                            currentStep={lifecycleCurrentStep}
-                            isEditable={true}
-                            onUpdate={handleLifecycleUpdate}
-                            onGenerate={handleLifecycleGenerate}
-                            isGenerating={isGeneratingLifecycle}
-                        />
-                    </div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+                    {/* Metadata JSON Editor */}
+                    <div className="lg:col-span-2 space-y-6 flex flex-col min-h-0">
+                        {/* Phase Management */}
+                        <div className="industrial-panel p-6">
+                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">Phase Management</h3>
+                            <LifecycleTracker
+                                steps={lifecycleSteps}
+                                currentStep={lifecycleCurrentStep}
+                                isEditable={true}
+                                onUpdate={handleLifecycleUpdate}
+                                onGenerate={handleLifecycleGenerate}
+                                isGenerating={isGeneratingLifecycle}
+                            />
+                        </div>
 
-                    {/* BOM & Supply Chain */}
-                    <div className="industrial-panel p-6">
-                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">2. BOM & Supply Chain</h3>
-                        <div className="space-y-4">
-                            <div className="bg-industrial-steel-900 p-4 border border-industrial-concrete rounded-sm min-h-[120px] flex flex-col justify-center">
-                                {verificationStatus === 'unverified' && (
-                                    <div className="text-center">
-                                        <div className="text-industrial-steel-500 text-xs font-mono mb-3">No analysis data available</div>
-                                        <button
-                                            onClick={handleRunSupplierAnalysis}
-                                            className="px-4 py-2 bg-industrial-steel-800 hover:bg-industrial-copper-500 hover:text-white border border-industrial-concrete rounded-sm text-xs font-mono uppercase transition-all"
-                                        >
-                                            Initiate Risk Scan
-                                        </button>
-                                    </div>
-                                )}
-
-                                {verificationStatus === 'loading' && (
-                                    <div className="flex flex-col items-center justify-center">
-                                        <div className="w-8 h-8 rounded-full border-2 border-industrial-steel-800 border-t-industrial-copper-500 animate-spin mb-3"></div>
-                                        <div className="text-industrial-copper-500 text-[10px] font-mono uppercase tracking-widest animate-pulse">Scanning Supply Chain...</div>
-                                    </div>
-                                )}
-
-                                {verificationStatus === 'verified' && (
-                                    <div className="text-center">
-                                        <div className="w-12 h-12 bg-green-900/20 text-green-500 rounded-full flex items-center justify-center mx-auto mb-3 border border-green-500/50">
-                                            <span className="text-xl">✓</span>
+                        <div className="industrial-panel flex flex-col flex-1 min-h-[400px]">
+                            <div className="p-4 border-b border-industrial-concrete bg-industrial-steel-900 flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest">Central Metadata Definition</h3>
+                                    <p className="text-[10px] text-industrial-steel-500 font-mono mt-0.5">Source of Truth for Tech Transfer</p>
+                                </div>
+                                <button
+                                    onClick={handleSaveMetadata}
+                                    disabled={isSavingMetadata || !metadataJson}
+                                    className="px-4 py-1.5 bg-industrial-copper-500 hover:bg-industrial-copper-400 disabled:opacity-50 text-black font-bold text-[10px] uppercase tracking-widest rounded-sm transition-colors flex items-center gap-2"
+                                >
+                                    {isSavingMetadata ? 'Saving...' : 'Save Metadata'}
+                                    {!isSavingMetadata && <span>💾</span>}
+                                </button>
+                            </div>
+                            <div className="flex-1 relative overflow-hidden bg-black/40">
+                                {metadataJson ? (
+                                    <textarea
+                                        className="absolute inset-0 w-full h-full p-6 font-mono text-sm bg-transparent text-industrial-steel-200 resize-none focus:outline-none focus:bg-white/5 transition-colors custom-scrollbar"
+                                        value={metadataEditorValue}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setMetadataEditorValue(val);
+                                            try {
+                                                const parsed = JSON.parse(val);
+                                                setMetadataJson(parsed);
+                                            } catch (err) {
+                                                // Invalid JSON, just wait for more input
+                                            }
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                                        <div className="w-16 h-16 border-2 border-dashed border-industrial-steel-700 rounded-full flex items-center justify-center mb-4">
+                                            <span className="text-industrial-steel-600">?</span>
                                         </div>
-                                        <div className="text-green-500 font-bold text-sm uppercase tracking-wider mb-1">SUPPLY CHAIN VERIFIED</div>
-                                        <div className="text-industrial-steel-500 text-[10px] font-mono">All critical data points confirmed</div>
-                                    </div>
-                                )}
-
-                                {verificationStatus === 'flagged' && (
-                                    <div className="flex flex-col h-full">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <span className="text-red-500 text-lg">⚠</span>
-                                            <span className="text-red-500 font-bold text-xs uppercase tracking-wider">RISKS DETECTED</span>
-                                        </div>
-                                        <div className="flex-1 overflow-y-auto max-h-40 custom-scrollbar mb-3">
-                                            <ul className="space-y-1">
-                                                {verificationIssues.map((issue, idx) => (
-                                                    <li key={idx} className="text-[10px] text-neutral-300 font-mono flex items-start gap-2">
-                                                        <span className="text-red-500 mt-0.5">•</span>
-                                                        <span>{issue}</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={handleRunSupplierAnalysis}
-                                                className="flex-1 py-1.5 bg-red-900/10 hover:bg-red-900/30 border border-red-500/30 text-red-400 text-[10px] font-mono uppercase rounded-sm transition-colors"
-                                            >
-                                                Re-verify
-                                            </button>
-                                            <button
-                                                onClick={() => setVerificationStatus('verified')}
-                                                className="flex-1 py-1.5 bg-industrial-steel-800 hover:bg-industrial-steel-700 border border-industrial-concrete text-industrial-steel-400 hover:text-white text-[10px] font-mono uppercase rounded-sm transition-colors"
-                                            >
-                                                Override & Verify
-                                            </button>
-                                        </div>
+                                        <h4 className="text-industrial-steel-400 font-mono text-xs uppercase tracking-widest mb-2">No Metadata Found</h4>
+                                        <p className="text-[10px] text-industrial-steel-600 max-w-xs uppercase leading-relaxed">
+                                            The AI agent has not yet generated a metadata.json file.
+                                            Please complete the ingestion step or ask the AI to "Initialize project metadata".
+                                        </p>
                                     </div>
                                 )}
                             </div>
                         </div>
-                    </div>
-                </div>
 
-                {/* CSV Editor Integrated into Verification */}
-                {csvs.length > 0 && (
-                    <div className="industrial-panel p-6">
-                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">Data Management</h3>
+                        {/* Side Info / Recommendations */}
                         <div className="space-y-6">
-                            {csvs.map(csv => (
-                                <div key={csv.id} className="border border-industrial-concrete bg-industrial-steel-900/50 rounded-sm overflow-hidden">
-                                    <div className="bg-industrial-steel-800/50 px-3 py-1 flex justify-between items-center border-b border-industrial-concrete">
-                                        <span className="text-[10px] font-mono font-bold text-industrial-steel-300">{csv.file_name}</span>
-                                        <div className="flex gap-4">
-                                            <button
-                                                onClick={() => handleMagicFill(csv)}
-                                                className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1 font-bold animate-pulse"
-                                                disabled={processing}
-                                            >
-                                                <span>✨</span> Magic Fill
-                                            </button>
-                                            <button onClick={() => handleSaveCsv(csv)} className="text-[10px] text-industrial-copper-500 hover:underline font-bold">Save Changes</button>
-                                            <button onClick={() => handleDownload(csv)} className="text-[10px] text-industrial-steel-500 hover:underline">Download CSV</button>
+                            <div className="industrial-panel p-6 border-l-4 border-l-industrial-copper-500">
+                                <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-4">AI Recommendations</h3>
+                                <div className="space-y-4">
+                                    {metadataJson?.risk_assessment?.issues?.map((issue: any, idx: number) => (
+                                        <div key={idx} className="p-3 bg-red-900/10 border border-red-500/20 rounded-sm">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-red-500">⚠</span>
+                                                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">{issue.severity || 'Risk'}</span>
+                                            </div>
+                                            <p className="text-[10px] text-neutral-300 font-mono leading-relaxed">{issue.description || issue}</p>
                                         </div>
-                                    </div>
-                                    <div className="overflow-x-auto custom-scrollbar max-h-80">
-                                        <table className="w-full text-xs font-mono text-left">
-                                            <thead>
-                                                {csvData[csv.id]?.[0]?.map((header, i) => (
-                                                    <th key={i} className="bg-industrial-steel-950 p-2 border-b border-industrial-concrete text-industrial-steel-400 whitespace-nowrap">{header}</th>
-                                                ))}
-                                            </thead>
-                                            <tbody>
-                                                {csvData[csv.id]?.slice(1).map((row, i) => (
-                                                    <tr key={i} className="border-b border-industrial-concrete/20 hover:bg-white/5">
-                                                        {row.map((cell, j) => (
-                                                            <td key={j} className="p-0 border-r border-industrial-concrete/20 last:border-0 whitespace-nowrap text-industrial-steel-300">
-                                                                <input
-                                                                    type="text"
-                                                                    value={cell}
-                                                                    onChange={(e) => handleCellChange(csv.id, i + 1, j, e.target.value)}
-                                                                    className="w-full h-full bg-transparent p-2 text-industrial-steel-300 focus:bg-industrial-steel-800 focus:outline-none focus:text-white transition-colors"
-                                                                />
-                                                            </td>
-                                                        ))}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                    )) || (
+                                            <div className="text-[10px] text-industrial-steel-500 italic font-mono">No critical issues identified.</div>
+                                        )}
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                                <button
+                                    onClick={handleGenerateCritique}
+                                    className="w-full mt-6 py-2 border border-industrial-copper-500/30 text-industrial-copper-500 hover:bg-industrial-copper-500/10 text-[10px] font-mono uppercase tracking-widest transition-all"
+                                >
+                                    Run System Audit
+                                </button>
+                            </div>
 
-
-                {/* Documentation Check */}
-                <div className="industrial-panel p-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest">3. Documentation Output (All Files)</h3>
-                        <span className="text-[10px] font-mono text-industrial-steel-500">{blobs.length} Assets Generated</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {blobs.map(doc => (
-                            <div key={doc.id} className="flex items-center justify-between p-3 bg-industrial-steel-900 border border-industrial-concrete rounded-sm">
-                                <span className="text-xs font-mono truncate max-w-[150px]">{doc.file_name}</span>
-                                <div className="flex gap-2">
-                                    <button onClick={() => handleDownload(doc)} className="text-[10px] text-industrial-steel-500 hover:text-white">View</button>
-                                    <span className="text-[10px] text-green-500">✓ Valid</span>
+                            {/* Quick View Stats */}
+                            <div className="industrial-panel p-6">
+                                <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest mb-6">Asset Health</h3>
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center text-[10px] font-mono">
+                                        <span className="text-industrial-steel-500 uppercase">Total Assets</span>
+                                        <span className="text-white">{blobs.length}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-[10px] font-mono">
+                                        <span className="text-industrial-steel-500 uppercase">Revision</span>
+                                        <span className="text-industrial-copper-500">{metadataJson?.revision || 'PRE-RELEASE'}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-[10px] font-mono">
+                                        <span className="text-industrial-steel-500 uppercase">Status</span>
+                                        <span className="text-green-500">{metadataJson?.status || 'INGESTING'}</span>
+                                    </div>
                                 </div>
                             </div>
-                        ))}
-                    </div>
-                </div>
 
-                {/* AI Feasibility Check */}
-                <div className="industrial-panel p-6 border-l-4 border-l-industrial-copper-500">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-1">4. Feasibility Status</h3>
-                            <p className="text-[10px] text-industrial-steel-400 font-mono">AI-Driven Manufacturing Analysis</p>
+                            <div className="p-4 bg-industrial-steel-950/50 border border-industrial-concrete rounded-sm">
+                                <h4 className="text-[9px] font-bold text-industrial-steel-500 uppercase tracking-widest mb-2">Usage Note</h4>
+                                <p className="text-[10px] font-mono text-industrial-steel-400 leading-relaxed italic">
+                                    Modifications made here will update the core metadata.json. Ensure all technical specifications match the source documentation.
+                                </p>
+                            </div>
                         </div>
-                        <button
-                            onClick={handleGenerateCritique}
-                            className="px-3 py-1 bg-industrial-copper-500/10 text-industrial-copper-500 border border-industrial-copper-500/50 text-[10px] font-mono uppercase hover:bg-industrial-copper-500 hover:text-white transition-all"
-                        >
-                            Refresh Analysis
-                        </button>
-                    </div>
-                    <div className="mt-4 p-4 bg-black/30 rounded-sm font-mono text-xs text-neutral-300 leading-relaxed max-h-40 overflow-y-auto">
-                        {/* In a real app, this would be parsing the last critique message */}
-                        Analysis active. Please check the chat panel for detailed feasibility reports and warnings. Ensure all critical errors are resolved before final approval.
                     </div>
                 </div>
             </div>
-        )
+        );
     };
 
     const renderSharedProductView = () => {
@@ -1446,7 +1395,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         </div>
                         <div className="flex-1 overflow-auto p-4 bg-black/40">
                             <pre className="text-[10px] font-mono text-industrial-steel-400 whitespace-pre-wrap">
-                                {JSON.stringify({
+                                {metadataJson ? JSON.stringify(metadataJson, null, 2) : JSON.stringify({
                                     projectId: project?.id,
                                     revision: "A.1",
                                     status: "LOCKED",
