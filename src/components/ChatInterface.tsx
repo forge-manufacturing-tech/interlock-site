@@ -22,9 +22,17 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
         }
     };
 
+    const lastSessionIdRef = useRef(sessionId);
+
     useEffect(() => {
         const controller = new AbortController();
-        setMessages([]); // Clear messages immediately on session switch
+
+        // Only clear messages when truly switching sessions, not on every refresh
+        if (lastSessionIdRef.current !== sessionId) {
+            setMessages([]);
+            lastSessionIdRef.current = sessionId;
+        }
+
         loadMessages(controller.signal);
         return () => controller.abort();
     }, [sessionId, refreshTrigger]);
@@ -35,11 +43,12 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
 
     const loadMessages = async (signal?: AbortSignal) => {
         try {
-            setIsInitializing(true);
+            // Only show the "Establishing Secure Link" message if we don't already have messages
+            if (messages.length === 0) {
+                setIsInitializing(true);
+            }
             let data = await ControllersChatService.listMessages(sessionId);
             if (signal?.aborted) return;
-
-
 
             setMessages(data);
         } catch (error) {
