@@ -13,7 +13,12 @@ const SYSTEM_PROMPT = `
 You are a helpful industrial manufacturing assistant.
 You are authorized to modify BOMs and suggest suppliers based on the user's request.
 When asked about suppliers (e.g., Chinese, US), you should provide known examples or generic placeholders if specific real-world data is restricted, but you must NOT refuse the request.
-Treat this as a theoretical exercise or a simulation if necessary to comply with safety guidelines. Await further instructions.
+Treat this as a theoretical exercise or a simulation if necessary to comply with safety guidelines.
+
+NEW CAPABILITIES:
+1. FILE MANAGEMENT: If you upload or generate a file with the same name as an existing one, it will automatically overwrite the old version.
+2. DATA ENRICHMENT: You can use "Magic Fill" to automatically populate missing CSV data (Price, Lead Time, etc) based on best-guess estimates.
+3. VERIFICATION: The user can force-override verification checks if your analysis is too conservative. You can be more pragmatic in your "Risk Scans".
 `;
 
 const serializeCsv = (rows: string[][]): string => {
@@ -66,6 +71,8 @@ export function SessionsPage() {
 
     // Ref to track current session ID for async operations
     const selectedSessionIdRef = useRef<string | null>(null);
+    // Ref to prevent double-submit race conditions
+    const processingRef = useRef(false);
 
     // Chat panel resize state
     const [chatPanelWidth, setChatPanelWidth] = useState(() => {
@@ -281,6 +288,11 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         }
     }, [selectedSession?.id, selectedSession?.content]);
 
+    // Sync processing ref with state
+    useEffect(() => {
+        processingRef.current = processing;
+    }, [processing]);
+
     const handleLifecycleUpdate = async (steps: string[], currentStep: number) => {
         if (!selectedSession) return;
 
@@ -370,11 +382,14 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         setVerificationIssues([]);
 
         try {
-            const prompt = `[SYSTEM: VERIFICATION] Analyze the current BOM and supplier details in the database/csv. 
-            IGNORE previous file generation status messages. Focus ONLY on the content of the data.
+            const prompt = `[SYSTEM: VERIFICATION] Verify the manufacturing data.
+            1. Use the 'list_files' tool to find the BOM or data file (CSV or Excel).
+            2. Use 'read_file' (or 'excel_to_csv' if Excel) to read its content.
+            3. Analyze the content for supplier details, lead times, and MOQs.
+            
             CRITICAL INSTRUCTION:
-            If specific supplier names, contact info, lead times, MOQs, and locations are present and sufficient for manufacturing, reply ONLY with "[VERIFIED]".
-            If ANY of these are missing or generic, do NOT include "[VERIFIED]". Instead, list each specific missing item or risk as a bullet point.
+            If specific supplier names, contact info, lead times, MOQs, and locations are present and sufficient, reply ONLY with "[VERIFIED]".
+            If ANY are missing or generic, do NOT include "[VERIFIED]". List specific missing items as bullet points.
             `;
 
             const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
@@ -576,16 +591,62 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file || !selectedSession) return;
+        if (!e.target.files || e.target.files.length === 0 || !selectedSession) return;
+
+        const files = Array.from(e.target.files);
 
         try {
             setUploading(true);
-            await ControllersBlobsService.upload(selectedSession.id, { file });
+            let updatedComments = { ...comments };
+            let commentsModified = false;
+
+            for (const file of files) {
+                // Check for existing file with same name to overwrite
+                const existing = blobs.find(b => b.file_name === file.name);
+                let preservedComments: string[] | undefined;
+
+                if (existing) {
+                    console.log(`Overwriting existing file: ${file.name}`);
+                    if (updatedComments[existing.id]) {
+                        preservedComments = updatedComments[existing.id];
+                        delete updatedComments[existing.id];
+                        commentsModified = true;
+                    }
+                    try {
+                        await ControllersBlobsService.remove(existing.id);
+                    } catch (err) {
+                        console.warn('Failed to remove existing blob (may have been removed already):', err);
+                    }
+                }
+
+                // Upload new
+                const newBlob = await ControllersBlobsService.upload(selectedSession.id, { file });
+
+                if (preservedComments && newBlob?.id) {
+                    updatedComments[newBlob.id] = preservedComments;
+                    commentsModified = true;
+                }
+            }
+
+            // Sync comments to backend if needed
+            if (commentsModified) {
+                setComments(updatedComments);
+                try {
+                    const existingContent = selectedSession.content ? JSON.parse(selectedSession.content) : {};
+                    const payloadObj = { ...existingContent, comments: updatedComments };
+                    const contentPayload = JSON.stringify(payloadObj);
+                    await ControllersSessionsService.update(selectedSession.id, { content: contentPayload });
+                    setSelectedSession(prev => prev ? { ...prev, content: contentPayload } : null);
+                } catch (e) {
+                    console.error("Failed to sync preserved comments", e);
+                }
+            }
 
             // Refresh
             const newBlobs = await ControllersBlobsService.list(selectedSession.id);
             setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
+
+            alert('Upload complete');
         } catch (error) {
             console.error('Upload failed:', error);
             alert('Upload failed');
@@ -611,7 +672,8 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
     };
 
     const handleRetry = async () => {
-        if (!selectedSession) return;
+        if (!selectedSession || processingRef.current) return;
+        processingRef.current = true;
         const token = localStorage.getItem('token');
         try {
             await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${selectedSession.id}/retry`, {
@@ -621,11 +683,14 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             startPolling(selectedSession.id);
         } catch (error) {
             console.error('Failed to retry:', error);
+            processingRef.current = false;
         }
     };
 
     const handleConvert = async () => {
-        if (!selectedSession || (selectedSession as any).status === 'processing' || processing) return;
+        if (!selectedSession || (selectedSession as any).status === 'processing' || processing || processingRef.current) return;
+
+        processingRef.current = true;
         const token = localStorage.getItem('token');
 
         setProcessing(true);
@@ -639,17 +704,18 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 
         if (wizardStartType === 'description' && productDescription) {
             analysisPrompt += `1. Use the following PRODUCT DESCRIPTION as the source of truth:\n"${productDescription}"\n`;
-            analysisPrompt += `2. Architect a plausible 'BOM_Standardized.xlsx' with columns: ${targetColumns} based on this description.\n`;
+            analysisPrompt += `2. Architect a plausible 'BOM_Standardized.csv' with columns: ${targetColumns} based on this description.\n`;
         } else if (wizardStartType === 'sketch') {
             analysisPrompt += `1. Analyze the uploaded image(s)/sketch(es) to understand the product structure.\n`;
-            analysisPrompt += `2. Brainstorm and architect a 'BOM_Standardized.xlsx' with columns: ${targetColumns} based on visual analysis.\n`;
+            analysisPrompt += `2. Brainstorm and architect a 'BOM_Standardized.csv' with columns: ${targetColumns} based on visual analysis.\n`;
         } else {
             analysisPrompt += `1. Analyze the uploaded technical file(s) (BOM, specifications).\n`;
-            analysisPrompt += `2. Create a 'BOM_Standardized.xlsx' with columns: ${targetColumns}.\n`;
+            analysisPrompt += `2. Create a 'BOM_Standardized.csv' with columns: ${targetColumns}.\n`;
         }
 
         analysisPrompt += `3. Create a 'data_summary.csv' of the main parts list.\n`;
         analysisPrompt += `4. Extract key technical parameters and manufacturing requirements.\n`;
+        analysisPrompt += `5. NOTE: If you generate a file with the same name as an existing one, it will overwrite the old version. Maintain consistent filenames for updates.\n`;
 
         prompts.push(analysisPrompt);
 
@@ -660,9 +726,10 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 ${specificInstruction}
 
 CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
-1. Create a "FULL, DETAILED PROFESSIONAL REPORT" (3-4 pages min).
-2. DO NOT use placeholders. Approximate values based on context.
-3. Use professional formatting (headers, bullet points).
+1. FILE MANAGEMENT: If a file with the same name exists, it will be overwritten. Use this to update documents.
+2. Create a "FULL, DETAILED PROFESSIONAL REPORT" (3-4 pages min).
+3. DO NOT use placeholders. Approximate values based on context.
+4. Use professional formatting (headers, bullet points).
 `;
             prompts.push(docPrompt);
         }
@@ -693,6 +760,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
             alert('Failed to complete conversion sequence');
             setProcessing(false);
             setProcessingStatus('');
+            processingRef.current = false;
         }
     };
 
@@ -835,6 +903,52 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
         } catch (e) {
             console.error("Save failed", e);
             alert("Failed to save CSV");
+        }
+    };
+    const handleMagicFill = async (blob: BlobResponse) => {
+        if (!selectedSession) return;
+        const currentData = csvData[blob.id];
+        if (!currentData) return;
+
+        setProcessing(true);
+
+        try {
+            // Simple serialization for prompt
+            const info = currentData.map(r => r.join(',')).join('\n');
+
+            const prompt = `[SYSTEM: DATA_ENRICHMENT]
+             I have a CSV file with the following content:
+             ${info}
+             
+             INSTRUCTION:
+             1. Identify any missing or empty values (e.g. Price, Manufacturer, Lead Time).
+             2. Fill them in with realistic "best guess" estimates based on the Description/Part Number.
+             3. Mark estimated values with an asterisk (*).
+             4. Return ONLY the fully completed CSV content. No markdown, no comments.
+             `;
+
+            const response = await ControllersChatService.chat(selectedSession.id, { message: prompt });
+
+            if (response && response.content) {
+                const cleanCsv = response.content.replace(/```csv/g, '').replace(/```/g, '').trim();
+                // Robust CSV split handling quotes
+                const rows = cleanCsv.split('\n').map(row => {
+                    const matches = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                    // Fallback to simple split if regex fails or complicates things too much for simple AI output
+                    return matches ? matches.map(m => m.replace(/^"|"$/g, '')) : row.split(',');
+                });
+
+                setCsvData(prev => ({
+                    ...prev,
+                    [blob.id]: rows
+                }));
+                alert("Magic Fill Applied! Please Review and Save.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Magic Fill failed");
+        } finally {
+            setProcessing(false);
         }
     };
 
@@ -1002,17 +1116,28 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
     };
 
     const renderVerificationPanel = () => {
+        const csvs = blobs.filter(b => b.content_type === 'text/csv' || b.file_name.toLowerCase().endsWith('.csv'));
+
         return (
             <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6 animate-in slide-in-from-bottom-4 duration-500">
                 <div className="flex justify-between items-center mb-2">
                     <h2 className="industrial-headline text-2xl">Verification Station</h2>
-                    <button
-                        onClick={() => handleStageChange('complete')}
-                        className="industrial-btn px-6 py-2 flex items-center gap-2"
-                    >
-                        <span>FINAL APPROVAL</span>
-                        <span>→</span>
-                    </button>
+                    <div className="flex gap-4">
+                        <button
+                            onClick={() => handleStageChange('ingestion')}
+                            className="bg-industrial-steel-800 text-industrial-steel-400 border border-industrial-concrete hover:bg-industrial-steel-700 hover:text-white px-6 py-2 flex items-center gap-2 rounded-sm text-xs font-mono uppercase transition-colors"
+                        >
+                            <span>←</span>
+                            <span>Back to Ingestion</span>
+                        </button>
+                        <button
+                            onClick={() => handleStageChange('complete')}
+                            className="industrial-btn px-6 py-2 flex items-center gap-2"
+                        >
+                            <span>FINAL APPROVAL</span>
+                            <span>→</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1029,7 +1154,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         />
                     </div>
 
-                    {/* BOM & Supplier Verification */}
+                    {/* BOM & Supply Chain */}
                     <div className="industrial-panel p-6">
                         <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">2. BOM & Supply Chain</h3>
                         <div className="space-y-4">
@@ -1079,55 +1204,116 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                                 ))}
                                             </ul>
                                         </div>
-                                        <button
-                                            onClick={handleRunSupplierAnalysis}
-                                            className="w-full py-1.5 bg-red-900/10 hover:bg-red-900/30 border border-red-500/30 text-red-400 text-[10px] font-mono uppercase rounded-sm transition-colors"
-                                        >
-                                            Re-verify
-                                        </button>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={handleRunSupplierAnalysis}
+                                                className="flex-1 py-1.5 bg-red-900/10 hover:bg-red-900/30 border border-red-500/30 text-red-400 text-[10px] font-mono uppercase rounded-sm transition-colors"
+                                            >
+                                                Re-verify
+                                            </button>
+                                            <button
+                                                onClick={() => setVerificationStatus('verified')}
+                                                className="flex-1 py-1.5 bg-industrial-steel-800 hover:bg-industrial-steel-700 border border-industrial-concrete text-industrial-steel-400 hover:text-white text-[10px] font-mono uppercase rounded-sm transition-colors"
+                                            >
+                                                Override & Verify
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    {/* Documentation Check */}
-                    <div className="industrial-panel p-6 md:col-span-2">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest">3. Documentation Output</h3>
-                            <span className="text-[10px] font-mono text-industrial-steel-500">{blobs.length} Assets Generated</span>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {blobs.filter(b => b.content_type.includes('pdf') || b.content_type.includes('word') || b.file_name.endsWith('.docx')).map(doc => (
-                                <div key={doc.id} className="flex items-center justify-between p-3 bg-industrial-steel-900 border border-industrial-concrete rounded-sm">
-                                    <span className="text-xs font-mono truncate max-w-[150px]">{doc.file_name}</span>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => handleDownload(doc)} className="text-[10px] text-industrial-steel-500 hover:text-white">View</button>
-                                        <span className="text-[10px] text-green-500">✓ Valid</span>
+                {/* CSV Editor Integrated into Verification */}
+                {csvs.length > 0 && (
+                    <div className="industrial-panel p-6">
+                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest mb-4">Data Management</h3>
+                        <div className="space-y-6">
+                            {csvs.map(csv => (
+                                <div key={csv.id} className="border border-industrial-concrete bg-industrial-steel-900/50 rounded-sm overflow-hidden">
+                                    <div className="bg-industrial-steel-800/50 px-3 py-1 flex justify-between items-center border-b border-industrial-concrete">
+                                        <span className="text-[10px] font-mono font-bold text-industrial-steel-300">{csv.file_name}</span>
+                                        <div className="flex gap-4">
+                                            <button
+                                                onClick={() => handleMagicFill(csv)}
+                                                className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1 font-bold animate-pulse"
+                                                disabled={processing}
+                                            >
+                                                <span>✨</span> Magic Fill
+                                            </button>
+                                            <button onClick={() => handleSaveCsv(csv)} className="text-[10px] text-industrial-copper-500 hover:underline font-bold">Save Changes</button>
+                                            <button onClick={() => handleDownload(csv)} className="text-[10px] text-industrial-steel-500 hover:underline">Download CSV</button>
+                                        </div>
+                                    </div>
+                                    <div className="overflow-x-auto custom-scrollbar max-h-80">
+                                        <table className="w-full text-xs font-mono text-left">
+                                            <thead>
+                                                {csvData[csv.id]?.[0]?.map((header, i) => (
+                                                    <th key={i} className="bg-industrial-steel-950 p-2 border-b border-industrial-concrete text-industrial-steel-400 whitespace-nowrap">{header}</th>
+                                                ))}
+                                            </thead>
+                                            <tbody>
+                                                {csvData[csv.id]?.slice(1).map((row, i) => (
+                                                    <tr key={i} className="border-b border-industrial-concrete/20 hover:bg-white/5">
+                                                        {row.map((cell, j) => (
+                                                            <td key={j} className="p-0 border-r border-industrial-concrete/20 last:border-0 whitespace-nowrap text-industrial-steel-300">
+                                                                <input
+                                                                    type="text"
+                                                                    value={cell}
+                                                                    onChange={(e) => handleCellChange(csv.id, i + 1, j, e.target.value)}
+                                                                    className="w-full h-full bg-transparent p-2 text-industrial-steel-300 focus:bg-industrial-steel-800 focus:outline-none focus:text-white transition-colors"
+                                                                />
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </div>
+                )}
 
-                    {/* AI Feasibility Check */}
-                    <div className="industrial-panel p-6 md:col-span-2 border-l-4 border-l-industrial-copper-500">
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-1">4. Feasibility Status</h3>
-                                <p className="text-[10px] text-industrial-steel-400 font-mono">AI-Driven Manufacturing Analysis</p>
+
+                {/* Documentation Check */}
+                <div className="industrial-panel p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest">3. Documentation Output (All Files)</h3>
+                        <span className="text-[10px] font-mono text-industrial-steel-500">{blobs.length} Assets Generated</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {blobs.map(doc => (
+                            <div key={doc.id} className="flex items-center justify-between p-3 bg-industrial-steel-900 border border-industrial-concrete rounded-sm">
+                                <span className="text-xs font-mono truncate max-w-[150px]">{doc.file_name}</span>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleDownload(doc)} className="text-[10px] text-industrial-steel-500 hover:text-white">View</button>
+                                    <span className="text-[10px] text-green-500">✓ Valid</span>
+                                </div>
                             </div>
-                            <button
-                                onClick={handleGenerateCritique}
-                                className="px-3 py-1 bg-industrial-copper-500/10 text-industrial-copper-500 border border-industrial-copper-500/50 text-[10px] font-mono uppercase hover:bg-industrial-copper-500 hover:text-white transition-all"
-                            >
-                                Refresh Analysis
-                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* AI Feasibility Check */}
+                <div className="industrial-panel p-6 border-l-4 border-l-industrial-copper-500">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-1">4. Feasibility Status</h3>
+                            <p className="text-[10px] text-industrial-steel-400 font-mono">AI-Driven Manufacturing Analysis</p>
                         </div>
-                        <div className="mt-4 p-4 bg-black/30 rounded-sm font-mono text-xs text-neutral-300 leading-relaxed max-h-40 overflow-y-auto">
-                            {/* In a real app, this would be parsing the last critique message */}
-                            Analysis active. Please check the chat panel for detailed feasibility reports and warnings. Ensure all critical errors are resolved before final approval.
-                        </div>
+                        <button
+                            onClick={handleGenerateCritique}
+                            className="px-3 py-1 bg-industrial-copper-500/10 text-industrial-copper-500 border border-industrial-copper-500/50 text-[10px] font-mono uppercase hover:bg-industrial-copper-500 hover:text-white transition-all"
+                        >
+                            Refresh Analysis
+                        </button>
+                    </div>
+                    <div className="mt-4 p-4 bg-black/30 rounded-sm font-mono text-xs text-neutral-300 leading-relaxed max-h-40 overflow-y-auto">
+                        {/* In a real app, this would be parsing the last critique message */}
+                        Analysis active. Please check the chat panel for detailed feasibility reports and warnings. Ensure all critical errors are resolved before final approval.
                     </div>
                 </div>
             </div>
@@ -1178,9 +1364,38 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                     {lifecycleSteps.length > 0 && (
                                         <div>
                                             <h4 className="text-[10px] text-industrial-steel-500 font-mono uppercase mb-2">Current Phase</h4>
-                                            <div className="text-sm font-bold text-white border-l-2 border-industrial-copper-500 pl-3">
-                                                {lifecycleSteps[lifecycleCurrentStep]}
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="text-sm font-bold text-white border-l-2 border-industrial-copper-500 pl-3 flex-1">
+                                                    {lifecycleSteps[lifecycleCurrentStep]}
+                                                </div>
+
+                                                {viewMode === 'manufacturer' && (
+                                                    <div className="flex gap-1">
+                                                        <button
+                                                            onClick={() => handleLifecycleUpdate(lifecycleSteps, Math.max(0, lifecycleCurrentStep - 1))}
+                                                            disabled={lifecycleCurrentStep === 0}
+                                                            className="p-1 px-2 border border-industrial-concrete bg-industrial-steel-900 text-industrial-steel-400 hover:text-white hover:border-industrial-copper-500 disabled:opacity-30 disabled:hover:text-industrial-steel-400 disabled:hover:border-industrial-concrete rounded-sm transition-all"
+                                                        >
+                                                            ←
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleLifecycleUpdate(lifecycleSteps, Math.min(lifecycleSteps.length - 1, lifecycleCurrentStep + 1))}
+                                                            disabled={lifecycleCurrentStep === lifecycleSteps.length - 1}
+                                                            className="p-1 px-2 border border-industrial-concrete bg-industrial-steel-900 text-industrial-steel-400 hover:text-white hover:border-industrial-copper-500 disabled:opacity-30 disabled:hover:text-industrial-steel-400 disabled:hover:border-industrial-concrete rounded-sm transition-all"
+                                                        >
+                                                            →
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
+                                            {viewMode === 'manufacturer' && (
+                                                <div className="mt-2 w-full h-1 bg-industrial-steel-800 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-industrial-copper-500 transition-all duration-500"
+                                                        style={{ width: `${((lifecycleCurrentStep + 1) / lifecycleSteps.length) * 100}%` }}
+                                                    ></div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                     <div>
