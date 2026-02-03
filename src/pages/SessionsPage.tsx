@@ -16,12 +16,25 @@ You are a helpful industrial manufacturing assistant specialized in Tech Transfe
 CENTRAL METADATA OBJECT:
 - There is a file named 'metadata.json' which acts as the 'Source of Truth' for this Tech Transfer session.
 - Your PRIMARY GOAL is to populate and refine this 'metadata.json' file based on the documents you read.
-- This JSON object is what the manufacturer will use to validate the project. It should contain:
-    - Product specifications (dimensions, weight, materials).
-    - BOM (Bill of Materials) summary.
-    - Manufacturing steps or Lifecycle stages.
-    - Critical quality attributes (CQAs).
-    - Supplier/Risk assessment summary.
+- This JSON object is what the manufacturer will use to validate the project.
+    - IMPORTANT: The JSON MUST contain a root key 'project_data' which holds CSV-friendly tabular data.
+    - 'project_data' should be a dictionary where keys are table names (e.g. "Bill_Of_Materials", "Specifications") and values are objects representing columns.
+    - Example structure:
+      {
+        "project_data": {
+           "Bill_Of_Materials": {
+              "Part_Number": ["A1", "B2"],
+              "Description": ["Screw", "Plate"],
+              "Quantity": ["10", "1"]
+           },
+           "Specifications": {
+              "Property": ["Weight", "Material"],
+              "Value": ["10kg", "Steel"]
+           }
+        },
+        "lifecycle": { ... },
+        "risk_assessment": { ... }
+      }
 - ALWAYS try to keep 'metadata.json' up to date. If you find new information, update 'metadata.json' using 'create_text_file'.
 
 GUIDELINES:
@@ -39,6 +52,105 @@ const serializeCsv = (rows: string[][]): string => {
             return cell;
         }).join(',')
     ).join('\n');
+};
+
+const ProjectDataEditor = ({ data, onUpdate, readOnly }: { data: any, onUpdate?: (d: any) => void, readOnly?: boolean }) => {
+    if (!data) return (
+        <div className="flex flex-col items-center justify-center h-full text-center p-8">
+            <div className="w-16 h-16 border-2 border-dashed border-industrial-steel-700 rounded-full flex items-center justify-center mb-4">
+                <span className="text-industrial-steel-600">?</span>
+            </div>
+            <h4 className="text-industrial-steel-400 font-mono text-xs uppercase tracking-widest mb-2">No Metadata Found</h4>
+            <p className="text-[10px] text-industrial-steel-600 max-w-xs uppercase leading-relaxed">
+                The AI agent has not yet generated a metadata.json file.
+            </p>
+        </div>
+    );
+
+    // Fallback if no project_data but other data exists
+    if (!data.project_data) {
+        return (
+            <div className="p-6 text-industrial-steel-400 font-mono text-xs h-full flex flex-col">
+                <div className="mb-4 flex items-center gap-2 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded text-yellow-500">
+                    <span>⚠</span>
+                    <span>Standard 'project_data' table structure not found. Viewing raw JSON:</span>
+                </div>
+                <div className="bg-black/40 p-4 rounded border border-industrial-concrete overflow-auto flex-1 custom-scrollbar">
+                    <pre>{JSON.stringify(data, null, 2)}</pre>
+                </div>
+            </div>
+        );
+    }
+
+    const tables = data.project_data;
+    const tableNames = Object.keys(tables);
+
+    if (tableNames.length === 0) {
+        return <div className="p-6 text-industrial-steel-500 italic font-mono text-xs">Project Data is empty.</div>;
+    }
+
+    const handleCellChange = (tableName: string, colName: string, rowIndex: number, value: string) => {
+        if (readOnly || !onUpdate) return;
+
+        const newData = JSON.parse(JSON.stringify(data));
+        if (!newData.project_data[tableName]) return;
+        if (!newData.project_data[tableName][colName]) return;
+
+        newData.project_data[tableName][colName][rowIndex] = value;
+        onUpdate(newData);
+    };
+
+    return (
+        <div className="space-y-8 p-6 overflow-y-auto max-h-full custom-scrollbar">
+            {tableNames.map((tableName) => {
+                const columns = tables[tableName];
+                const colNames = Object.keys(columns);
+                if (colNames.length === 0) return null;
+                const rowCount = columns[colNames[0]]?.length || 0;
+
+                return (
+                    <div key={tableName} className="industrial-panel p-0 border border-industrial-concrete bg-industrial-steel-900/30 overflow-hidden">
+                        <div className="bg-industrial-steel-900 border-b border-industrial-concrete px-4 py-2 flex items-center gap-2">
+                            <span className="text-industrial-copper-500">❖</span>
+                            <h4 className="text-xs font-bold text-industrial-steel-200 uppercase tracking-widest">
+                                {tableName.replace(/_/g, ' ')}
+                            </h4>
+                        </div>
+                        <div className="overflow-x-auto custom-scrollbar">
+                            <table className="w-full text-xs font-mono text-left bg-industrial-steel-950/50">
+                                <thead>
+                                    <tr>
+                                        {colNames.map(col => (
+                                            <th key={col} className="p-2 border-b border-r border-industrial-concrete text-industrial-steel-500 whitespace-nowrap bg-industrial-steel-900/50 font-normal uppercase tracking-wider text-[10px]">
+                                                {col}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {Array.from({ length: rowCount }).map((_, rowIndex) => (
+                                        <tr key={rowIndex} className="border-b border-industrial-concrete/20 hover:bg-white/5 transition-colors group">
+                                            {colNames.map(col => (
+                                                <td key={col} className="p-0 border-r border-industrial-concrete/20 min-w-[120px] relative">
+                                                    <input
+                                                        type="text"
+                                                        readOnly={readOnly}
+                                                        value={columns[col][rowIndex] || ''}
+                                                        onChange={(e) => handleCellChange(tableName, col, rowIndex, e.target.value)}
+                                                        className={`w-full h-full bg-transparent p-2 text-industrial-steel-300 font-mono text-xs focus:outline-none transition-colors border-none ${readOnly ? 'cursor-default' : 'focus:bg-industrial-steel-800 focus:text-white focus:ring-1 focus:ring-inset focus:ring-industrial-copper-500'}`}
+                                                    />
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
 };
 
 export function SessionsPage() {
@@ -76,7 +188,6 @@ export function SessionsPage() {
 
     // Verification State
     const [metadataJson, setMetadataJson] = useState<any>(null);
-    const [metadataEditorValue, setMetadataEditorValue] = useState<string>('');
     const [metadataBlobId, setMetadataBlobId] = useState<string | null>(null);
     const [isSavingMetadata, setIsSavingMetadata] = useState(false);
     const [isSyncingMetadata, setIsSyncingMetadata] = useState(false);
@@ -202,7 +313,6 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
         setProcessing(false);
         setProcessingStatus('');
         setMetadataJson(null);
-        setMetadataEditorValue('');
         setMetadataBlobId(null);
 
         if (selectedSession) {
@@ -492,12 +602,10 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
                 })
                 .then(data => {
                     setMetadataJson(data);
-                    setMetadataEditorValue(JSON.stringify(data, null, 2));
                 })
                 .catch(err => console.error('Failed to load metadata.json', err));
         } else {
             setMetadataJson(null);
-            setMetadataEditorValue('');
             setMetadataBlobId(null);
         }
     }, [blobs]);
@@ -1300,34 +1408,13 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                     {!isSavingMetadata && <span>💾</span>}
                                 </button>
                             </div>
-                            <div className="flex-1 relative overflow-hidden bg-black/40">
-                                {metadataJson ? (
-                                    <textarea
-                                        className="absolute inset-0 w-full h-full p-6 font-mono text-sm bg-transparent text-industrial-steel-200 resize-none focus:outline-none focus:bg-white/5 transition-colors custom-scrollbar"
-                                        value={metadataEditorValue}
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            setMetadataEditorValue(val);
-                                            try {
-                                                const parsed = JSON.parse(val);
-                                                setMetadataJson(parsed);
-                                            } catch (err) {
-                                                // Invalid JSON, just wait for more input
-                                            }
-                                        }}
-                                    />
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                                        <div className="w-16 h-16 border-2 border-dashed border-industrial-steel-700 rounded-full flex items-center justify-center mb-4">
-                                            <span className="text-industrial-steel-600">?</span>
-                                        </div>
-                                        <h4 className="text-industrial-steel-400 font-mono text-xs uppercase tracking-widest mb-2">No Metadata Found</h4>
-                                        <p className="text-[10px] text-industrial-steel-600 max-w-xs uppercase leading-relaxed">
-                                            The AI agent has not yet generated a metadata.json file.
-                                            Please complete the ingestion step or ask the AI to "Initialize project metadata".
-                                        </p>
-                                    </div>
-                                )}
+                            <div className="flex-1 relative overflow-hidden bg-black/40 flex flex-col">
+                                <ProjectDataEditor
+                                    data={metadataJson}
+                                    onUpdate={(newData) => {
+                                        setMetadataJson(newData);
+                                    }}
+                                />
                             </div>
                         </div>
 
@@ -1512,20 +1599,11 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         <div className="p-4 border-b border-industrial-concrete bg-industrial-steel-900">
                             <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest">Metadata Source</h3>
                         </div>
-                        <div className="flex-1 overflow-auto p-4 bg-black/40">
-                            <pre className="text-[10px] font-mono text-industrial-steel-400 whitespace-pre-wrap">
-                                {metadataJson ? JSON.stringify(metadataJson, null, 2) : JSON.stringify({
-                                    projectId: project?.id,
-                                    revision: "A.1",
-                                    status: "LOCKED",
-                                    lifecycle: {
-                                        stage: lifecycleSteps[lifecycleCurrentStep] || "Unknown",
-                                        total_steps: lifecycleSteps.length
-                                    },
-                                    assets: blobs.map(b => ({ name: b.file_name, type: b.content_type })),
-                                    generated_at: new Date().toISOString()
-                                }, null, 2)}
-                            </pre>
+                        <div className="flex-1 overflow-auto bg-black/40">
+                            <ProjectDataEditor
+                                data={metadataJson || {}}
+                                readOnly={true}
+                            />
                         </div>
                         <div className="p-4 bg-industrial-steel-900 border-t border-industrial-concrete">
                             <button className="w-full py-2 bg-industrial-copper-500 hover:bg-industrial-copper-400 text-black font-bold text-xs uppercase tracking-widest rounded-sm transition-colors">
@@ -1645,11 +1723,11 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
                 <div className="industrial-panel p-6 flex-1 min-h-0 flex flex-col">
                     <div className="flex justify-between items-center mb-6">
-                         <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest flex items-center gap-2">
                             <span className="text-xl">❖</span> Core Metadata Definition
                         </h3>
                         <div className="flex gap-4">
-                             {processing && (
+                            {processing && (
                                 <div className="flex items-center gap-2 text-industrial-copper-500">
                                     <span className="animate-spin">⟳</span>
                                     <span className="text-[10px] font-mono uppercase tracking-widest">{processingStatus}</span>
