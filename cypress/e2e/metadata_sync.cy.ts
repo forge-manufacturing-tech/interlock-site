@@ -40,14 +40,26 @@ describe('Metadata Sync Feature', () => {
             body: [{ id: 'mock-session-id', title: sessionTitle, project_id: 'mock-project-id' }]
         }).as('getSessions')
 
+        // Mock Session
         cy.intercept('GET', '**/api/sessions/mock-session-id', {
             statusCode: 200,
-            body: { id: 'mock-session-id', title: sessionTitle, status: 'pending', content: '{}' }
+            body: {
+                id: 'mock-session-id',
+                title: sessionTitle,
+                status: 'pending',
+                content: JSON.stringify({ workflow_stage: 'ingestion' })
+            }
         }).as('getSession')
 
-        // Mock Blobs - need at least one to trigger ingestion workbench (or wizardStep != 1)
-        // But the code logic is: (blobs.length === 0 && wizardStep === 1) ? renderEmptyState : renderIngestionWorkbench
-        // So we need a blob.
+        // Mock Update Session
+        cy.intercept('PUT', '**/api/sessions/mock-session-id', (req) => {
+            req.reply({
+                statusCode: 200,
+                body: { ...req.body, id: 'mock-session-id' }
+            })
+        }).as('updateSession')
+
+        // Mock Blobs
         cy.intercept('GET', '**/api/sessions/mock-session-id/blobs', {
             statusCode: 200,
             body: [{
@@ -60,18 +72,10 @@ describe('Metadata Sync Feature', () => {
             }]
         }).as('getBlobs')
 
-        // Mock download for the blob
-         cy.intercept('GET', '**/api/blobs/blob-1/download*', {
+        cy.intercept('GET', '**/api/blobs/blob-1/download*', {
             statusCode: 200,
             body: 'pdf content'
         })
-
-        // Mock Chat for Sync
-        cy.intercept('POST', '**/api/sessions/mock-session-id/chat', {
-            statusCode: 200,
-            body: { role: 'assistant', content: 'Metadata updated' },
-            delay: 1000
-        }).as('chatSync')
 
         // Login and Navigate
         cy.visit('/login')
@@ -85,30 +89,87 @@ describe('Metadata Sync Feature', () => {
         cy.contains(sessionTitle).click()
     })
 
-    it('should display Core Metadata panel and allow syncing', () => {
-        // Verify Panel Exists
-        cy.contains('Core Metadata').should('be.visible')
-        cy.contains('No metadata initialized').should('be.visible')
+    it('should navigate to preparation and allow metadata initialization', () => {
+        // 1. Ingestion Stage
+        cy.contains('PROCEED TO PREPARATION').click()
 
-        // Verify Button
-        const syncBtn = cy.contains('button', 'Sync Metadata')
-        syncBtn.should('be.visible')
+        // Mock session update to preparation
+        cy.intercept('GET', '**/api/sessions/mock-session-id', {
+            statusCode: 200,
+            body: {
+                id: 'mock-session-id',
+                title: sessionTitle,
+                status: 'pending',
+                content: JSON.stringify({ workflow_stage: 'preparation' })
+            }
+        }).as('getSessionPrep')
 
-        // Click Sync
-        syncBtn.click()
+        cy.wait('@updateSession')
 
-        // Verify Button State Changes
-        cy.contains('button', 'Syncing...').should('be.visible').and('be.disabled')
+        // 2. Preparation Stage
+        cy.contains('Preparation Station').should('be.visible')
+        cy.contains('Core Metadata Definition').should('be.visible')
+        cy.contains('Metadata Not Initialized').should('be.visible')
 
-        // Verify API Call
-        cy.wait('@chatSync').then((interception) => {
-            expect(interception.request.body.message).to.include('[SYSTEM: METADATA_SYNC]')
-        })
+        // Mock Queue
+        cy.intercept('POST', '**/api/sessions/mock-session-id/queue', {
+            statusCode: 200,
+            body: { message: 'Tasks queued' }
+        }).as('queueTasks')
 
-        // Verify Blobs Refetch (which would load new metadata.json if it existed)
-        cy.wait('@getBlobs')
+        // Click Initialize
+        const initBtn = cy.contains('button', 'Initialize Metadata Analysis')
+        initBtn.click()
 
-        // Button should revert
-        cy.contains('button', 'Sync Metadata').should('be.visible')
+        // Verify Processing State
+        cy.contains('Initializing Metadata Analysis...').should('be.visible')
+        cy.wait('@queueTasks')
+
+        // Simulate Metadata Creation via Polling
+        const metadata = {
+            product_definition: { description: "Generated Desc", specifications: {} },
+            bom_summary: { total_parts: 10, critical_items: [] },
+            risk_assessment: { issues: [] }
+        }
+
+        // Mock completed session with metadata
+        cy.intercept('GET', '**/api/sessions/mock-session-id', {
+            statusCode: 200,
+            body: {
+                id: 'mock-session-id',
+                title: sessionTitle,
+                status: 'completed',
+                content: JSON.stringify({ workflow_stage: 'preparation' })
+            }
+        }).as('getSessionCompleted')
+
+        cy.intercept('GET', '**/api/sessions/mock-session-id/blobs', {
+            statusCode: 200,
+            body: [{
+                id: 'meta-blob-1',
+                session_id: 'mock-session-id',
+                file_name: 'metadata.json',
+                content_type: 'application/json',
+                size: 100,
+                created_at: new Date().toISOString()
+            }]
+        }).as('getBlobsWithMeta')
+
+        cy.intercept('GET', '**/api/blobs/meta-blob-1/download', {
+            statusCode: 200,
+            body: metadata
+        }).as('getMetadata')
+
+        // The polling logic in component waits 2000ms.
+        // Cypress will retry 'contains' for 4000ms by default.
+        // We might need to wait for the polling to hit.
+        cy.wait(2500)
+
+        // Verify Metadata Editor appears
+        cy.contains('Product Definition').should('be.visible')
+        cy.contains('Generated Desc').should('be.visible')
+
+        // Verify Re-Generate button
+        cy.contains('button', 'Re-Generate Metadata').should('be.visible')
     })
 })

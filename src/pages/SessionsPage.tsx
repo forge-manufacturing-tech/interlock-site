@@ -4,8 +4,9 @@ import { ControllersSessionsService, ControllersProjectsService, ControllersChat
 import { useAuth } from '../contexts/AuthContext';
 import { ChatInterface } from '../components/ChatInterface';
 import { LifecycleTracker } from '../components/LifecycleTracker';
+import { MetadataEditor } from '../components/MetadataEditor';
 
-type WorkflowStage = 'ingestion' | 'verification' | 'complete';
+type WorkflowStage = 'ingestion' | 'preparation' | 'verification' | 'complete';
 
 
 const SYSTEM_PROMPT = `
@@ -729,6 +730,45 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             startPolling(selectedSession.id);
         } catch (error) {
             console.error('Failed to retry:', error);
+            processingRef.current = false;
+        }
+    };
+
+    const handleGenerateMetadata = async () => {
+        if (!selectedSession || (selectedSession as any).status === 'processing' || processing || processingRef.current) return;
+
+        processingRef.current = true;
+        const token = localStorage.getItem('token');
+        setProcessing(true);
+        setProcessingStatus("Initializing Metadata Analysis...");
+
+        const prompts = [
+            `${SYSTEM_PROMPT}\n\n[SYSTEM: METADATA_INIT] Initialize (or reset) the 'metadata.json' file structure. Ensure all fields (product_definition, bom_summary, lifecycle, risk_assessment) are present and empty/default.`,
+            `${SYSTEM_PROMPT}\n\n[SYSTEM: METADATA_SPECS] Analyze all uploaded documents and extracted text. Populate 'product_definition' in 'metadata.json' with detailed description and specifications found.`,
+            `${SYSTEM_PROMPT}\n\n[SYSTEM: METADATA_BOM] Analyze any BOM files (Excel/CSV) and technical documents. Update 'bom_summary' in 'metadata.json' with total part counts and identify critical items.`,
+            `${SYSTEM_PROMPT}\n\n[SYSTEM: METADATA_RISK] Perform a risk assessment based on the known specifications and complexity. Update 'risk_assessment' in 'metadata.json'.`,
+            `${SYSTEM_PROMPT}\n\n[SYSTEM: METADATA_LIFECYCLE] Define a recommended product lifecycle for this project. Update 'lifecycle' in 'metadata.json'.`
+        ];
+
+        try {
+            const queueRes = await fetch(`${import.meta.env.VITE_API_URL}/api/sessions/${selectedSession.id}/queue`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ tasks: prompts })
+            });
+
+            if (!queueRes.ok) throw new Error("Failed to queue metadata tasks");
+
+            startPolling(selectedSession.id, prompts.length);
+
+        } catch (error) {
+            console.error('Metadata generation failed:', error);
+            alert('Failed to start metadata generation');
+            setProcessing(false);
+            setProcessingStatus('');
             processingRef.current = false;
         }
     };
@@ -1579,6 +1619,108 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
         );
     }
 
+    const renderPreparationView = () => {
+        return (
+            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+                <div className="flex justify-between items-center mb-2">
+                    <h2 className="industrial-headline text-2xl">Preparation Station</h2>
+                    <div className="flex gap-4">
+                        <button
+                            onClick={() => handleStageChange('ingestion')}
+                            className="bg-industrial-steel-800 text-industrial-steel-400 border border-industrial-concrete hover:bg-industrial-steel-700 hover:text-white px-6 py-2 flex items-center gap-2 rounded-sm text-xs font-mono uppercase transition-colors"
+                        >
+                            <span>←</span>
+                            <span>Back to Ingestion</span>
+                        </button>
+                        <button
+                            onClick={() => handleStageChange('verification')}
+                            disabled={!metadataJson || processing}
+                            className="industrial-btn px-6 py-2 flex items-center gap-2 disabled:opacity-50 disabled:grayscale"
+                        >
+                            <span>PROCEED TO VERIFICATION</span>
+                            <span>→</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div className="industrial-panel p-6 flex-1 min-h-0 flex flex-col">
+                    <div className="flex justify-between items-center mb-6">
+                         <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest flex items-center gap-2">
+                            <span className="text-xl">❖</span> Core Metadata Definition
+                        </h3>
+                        <div className="flex gap-4">
+                             {processing && (
+                                <div className="flex items-center gap-2 text-industrial-copper-500">
+                                    <span className="animate-spin">⟳</span>
+                                    <span className="text-[10px] font-mono uppercase tracking-widest">{processingStatus}</span>
+                                </div>
+                            )}
+                            <button
+                                onClick={handleGenerateMetadata}
+                                disabled={processing}
+                                className="px-4 py-2 border border-industrial-copper-500 text-industrial-copper-500 hover:bg-industrial-copper-500/10 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {metadataJson ? 'Re-Generate Metadata' : 'Initialize Metadata Analysis'}
+                                <span className="text-lg">⚡</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar bg-industrial-steel-900/30 border border-industrial-concrete rounded-sm p-4">
+                        {processing ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-6">
+                                <div className="w-24 h-24 relative">
+                                    <div className="absolute inset-0 border-4 border-industrial-steel-800 rounded-full"></div>
+                                    <div className="absolute inset-0 border-4 border-industrial-copper-500 border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                                <div className="text-center">
+                                    <h4 className="text-industrial-copper-500 font-mono text-sm uppercase tracking-widest mb-2">AI Agent Working</h4>
+                                    <p className="text-industrial-steel-400 font-mono text-xs">{processingStatus}</p>
+                                </div>
+                            </div>
+                        ) : metadataJson ? (
+                            <MetadataEditor
+                                metadata={metadataJson}
+                                onChange={(newMeta) => setMetadataJson(newMeta)}
+                            />
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-center p-12">
+                                <div className="w-20 h-20 bg-industrial-steel-800 rounded-full flex items-center justify-center mb-6">
+                                    <span className="text-4xl">?</span>
+                                </div>
+                                <h3 className="text-white text-lg font-bold mb-2">Metadata Not Initialized</h3>
+                                <p className="text-industrial-steel-400 max-w-md text-sm mb-8">
+                                    The Core Metadata object has not been generated yet.
+                                    Click the button above to have the AI analyze your ingested files and construct the initial definition.
+                                </p>
+                                <button
+                                    onClick={handleGenerateMetadata}
+                                    className="industrial-btn px-8 py-3 text-sm"
+                                >
+                                    START ANALYSIS
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer Actions */}
+                    {metadataJson && !processing && (
+                        <div className="mt-6 flex justify-end border-t border-industrial-concrete pt-4">
+                            <button
+                                onClick={handleSaveMetadata}
+                                disabled={isSavingMetadata}
+                                className="industrial-btn px-6 py-2 flex items-center gap-2 text-xs"
+                            >
+                                {isSavingMetadata ? 'SAVING...' : 'SAVE CHANGES'}
+                                <span>💾</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     const renderIngestionWorkbench = () => {
 
         const images = blobs.filter(b => b.content_type.startsWith('image/') || b.file_name.toLowerCase().endsWith('.png') || b.file_name.toLowerCase().endsWith('.jpg'));
@@ -1632,27 +1774,6 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                     onGenerate={handleLifecycleGenerate}
                     isGenerating={isGeneratingLifecycle || processing || selectedSession?.status === 'processing'}
                 />
-
-                <div className="industrial-panel p-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xs font-bold text-industrial-copper-500 uppercase tracking-widest flex items-center gap-2">
-                            <span className="text-xl">❖</span> Core Metadata
-                        </h3>
-                        <button
-                            onClick={handleSyncMetadata}
-                            disabled={isSyncingMetadata}
-                            className="px-3 py-1.5 border border-industrial-copper-500/50 text-industrial-copper-500 hover:bg-industrial-copper-500/10 text-[10px] font-mono uppercase tracking-widest rounded-sm transition-colors flex items-center gap-2 disabled:opacity-50"
-                        >
-                            {isSyncingMetadata ? 'Syncing...' : 'Sync Metadata'}
-                            <span className="text-sm">↻</span>
-                        </button>
-                    </div>
-                    <div className="bg-black/40 p-4 border border-industrial-concrete rounded-sm overflow-auto max-h-60 custom-scrollbar">
-                        <pre className="text-[10px] font-mono text-industrial-steel-300 whitespace-pre-wrap">
-                            {metadataJson ? JSON.stringify(metadataJson, null, 2) : "No metadata initialized."}
-                        </pre>
-                    </div>
-                </div>
 
                 {/* 1. Results Preview Section (Top for visibility) */}
                 {(images.length > 0 || documents.length > 0 || csvs.length > 0) && (
@@ -1927,15 +2048,10 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                             <p className="text-xs font-mono text-industrial-steel-400">System Ready.</p>
                                         </div>
                                         <button
-                                            onClick={() => handleStageChange('verification')}
-                                            disabled={lifecycleSteps.length === 0}
-                                            className="px-6 py-2 industrial-btn text-xs mb-3 w-full disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed group relative"
+                                            onClick={() => handleStageChange('preparation')}
+                                            className="px-6 py-2 industrial-btn text-xs mb-3 w-full group relative"
                                         >
-                                            {lifecycleSteps.length === 0 ? (
-                                                <span className="flex items-center justify-center gap-2">
-                                                    <span>LOCKED: DEFINE LIFECYCLE FIRST</span>
-                                                </span>
-                                            ) : "PROCEED TO VERIFICATION"}
+                                            PROCEED TO PREPARATION
                                         </button>
                                         <button
                                             onClick={() => setShowCreateModal(true)}
@@ -2103,6 +2219,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                                 {(blobs.length === 0 && wizardStep === 1) ? renderEmptyState() : renderIngestionWorkbench()}
                                             </>
                                         )}
+                                        {workflowStage === 'preparation' && renderPreparationView()}
                                         {workflowStage === 'verification' && renderVerificationPanel()}
                                         {workflowStage === 'complete' && renderSharedProductView()}
                                     </div>

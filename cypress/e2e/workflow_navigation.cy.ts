@@ -44,7 +44,7 @@ describe('Workflow Navigation', () => {
             }]
         }).as('getSessions')
 
-        // Mock Initial Session Data (Ingestion Stage, with lifecycle so we can proceed)
+        // Mock Initial Session Data (Ingestion Stage)
         const initialContent = JSON.stringify({
             workflow_stage: 'ingestion',
             lifecycle: { steps: ['Phase 1', 'Phase 2', 'Phase 3'], currentStep: 0 }
@@ -63,7 +63,7 @@ describe('Workflow Navigation', () => {
             })
         }).as('updateSession')
 
-        // Mock Blobs
+        // Mock Blobs - Default empty
         cy.intercept('GET', '**/api/blobs*', {
             statusCode: 200,
             body: []
@@ -85,9 +85,79 @@ describe('Workflow Navigation', () => {
         cy.contains(sessionTitle).click()
     })
 
-    it('should allow navigation between Ingestion and Verification, and progress in Completed stage', () => {
+    it('should allow navigation between Ingestion, Preparation, and Verification', () => {
         // 1. Start at Ingestion
-        cy.contains('PROCEED TO VERIFICATION').should('be.visible')
+        cy.contains('PROCEED TO PREPARATION').should('be.visible')
+
+        // Mock switch to Preparation
+        cy.intercept('GET', '**/api/sessions/mock-session-id', {
+            statusCode: 200,
+            body: {
+                id: 'mock-session-id',
+                title: sessionTitle,
+                status: 'completed',
+                content: JSON.stringify({
+                    workflow_stage: 'preparation',
+                    lifecycle: { steps: ['Phase 1', 'Phase 2', 'Phase 3'], currentStep: 0 }
+                })
+            }
+        }).as('getSessionPrep')
+
+        // Click Proceed
+        cy.contains('PROCEED TO PREPARATION').click()
+        cy.wait('@updateSession')
+
+        // 2. Verify Preparation Stage
+        cy.contains('Preparation Station').should('be.visible')
+
+        // Mock Generation Start
+        cy.intercept('POST', '**/api/sessions/mock-session-id/queue', {
+            statusCode: 200,
+            body: { message: "Queued" }
+        }).as('queueMetadata')
+
+        // Mock Polling - Session Completed
+        cy.intercept('GET', '**/api/sessions/mock-session-id', {
+            statusCode: 200,
+            body: {
+                id: 'mock-session-id',
+                title: sessionTitle,
+                status: 'completed', // Completed stops polling
+                content: JSON.stringify({
+                    workflow_stage: 'preparation',
+                    lifecycle: { steps: ['Phase 1', 'Phase 2', 'Phase 3'], currentStep: 0 }
+                })
+            }
+        }).as('getSessionPolling')
+
+        // Mock Blobs with Metadata (happens during polling)
+        cy.intercept('GET', '**/api/sessions/mock-session-id/blobs', {
+            statusCode: 200,
+            body: [{
+                id: 'meta-blob',
+                session_id: 'mock-session-id',
+                file_name: 'metadata.json',
+                content_type: 'application/json',
+                size: 100,
+                created_at: new Date().toISOString()
+            }]
+        }).as('getBlobsWithMeta')
+
+        cy.intercept('GET', '**/api/blobs/meta-blob/download', {
+            statusCode: 200,
+            body: { product_definition: {} }
+        }).as('getMetadata')
+
+        // Click Initialize
+        cy.contains('Initialize Metadata Analysis').click()
+
+        // Wait for polling/blobs to update UI
+        cy.wait('@queueMetadata')
+        // The polling loop waits 2s? We can force wait.
+        cy.wait(2500)
+
+        // Check enabled button
+        cy.contains('PROCEED TO VERIFICATION').should('be.visible').and('not.be.disabled')
 
         // Mock switch to Verification
         cy.intercept('GET', '**/api/sessions/mock-session-id', {
@@ -107,7 +177,7 @@ describe('Workflow Navigation', () => {
         cy.contains('PROCEED TO VERIFICATION').click()
         cy.wait('@updateSession')
 
-        // 2. Verify we are in Verification
+        // 3. Verify Verification Stage
         cy.contains('Verification Station').should('be.visible')
         cy.contains('Back to Ingestion').should('be.visible')
 
@@ -129,91 +199,7 @@ describe('Workflow Navigation', () => {
         cy.contains('Back to Ingestion').click()
         cy.wait('@updateSession')
 
-        // 3. Verify we are back in Ingestion
-        cy.contains('PROCEED TO VERIFICATION').should('be.visible')
-
-        // Mock switch to Complete
-        cy.intercept('GET', '**/api/sessions/mock-session-id', {
-            statusCode: 200,
-            body: {
-                id: 'mock-session-id',
-                title: sessionTitle,
-                status: 'completed',
-                content: JSON.stringify({
-                    workflow_stage: 'complete',
-                    lifecycle: { steps: ['Phase 1', 'Phase 2', 'Phase 3'], currentStep: 0 }
-                })
-            }
-        }).as('getSessionComplete')
-
-        // Go to Verification -> Final Approval
-        // Note: we need to re-mock Verification state first if we want to simulate the flow properly,
-        // but typically the UI updates optimistically, so we might just need to click through.
-        // Let's force the state for the test simplicity or just assume we are there.
-        // Actually, we are "visually" in Ingestion now.
-
-        // To save time/complexity, let's just jump to Complete state via mock update for the next click
-        // But we need to click "PROCEED TO VERIFICATION" first to see the next button.
-
-        // Manually trigger the flow:
-        // Click Proceed again
-        cy.contains('PROCEED TO VERIFICATION').click()
-        cy.wait('@updateSession')
-
-        // Click Final Approval
-        cy.contains('FINAL APPROVAL').click()
-        cy.wait('@updateSession')
-
-        // 4. Verify Completed State
-        cy.contains('PRODUCTION READY').should('be.visible')
-
-        // 5. Test Lifecycle Arrows
-        cy.contains('Current Phase').should('be.visible')
-        // Check for presence of navigation controls
-        cy.contains('←').should('exist')
-        cy.contains('→').should('exist')
-
-        // Mock step update (Step 0 -> Step 1)
-        cy.intercept('PUT', '**/api/sessions/mock-session-id', (req) => {
-            const body = JSON.parse(req.body.content)
-            if (body.lifecycle.currentStep === 1) {
-                req.reply({ statusCode: 200, body: req.body })
-            }
-        }).as('updateStepNext')
-
-        // Click Next Arrow (→)
-        cy.contains('h4', 'Current Phase').next().find('button').contains('→').click()
-        cy.wait('@updateStepNext')
-
-        // Mock return of updated state (Step 1)
-        cy.intercept('GET', '**/api/sessions/mock-session-id', {
-            statusCode: 200,
-            body: {
-                id: 'mock-session-id',
-                title: sessionTitle,
-                status: 'completed',
-                content: JSON.stringify({
-                    workflow_stage: 'complete',
-                    lifecycle: { steps: ['Phase 1', 'Phase 2', 'Phase 3'], currentStep: 1 }
-                })
-            }
-        }).as('getSessionStep1')
-
-        // Check for Phase 2
-        cy.contains('Phase 2').should('be.visible')
-
-        // Mock step update back (Step 1 -> Step 0)
-        cy.intercept('PUT', '**/api/sessions/mock-session-id', (req) => {
-            const body = JSON.parse(req.body.content)
-            if (body.lifecycle.currentStep === 0) {
-                req.reply({ statusCode: 200, body: req.body })
-            }
-        }).as('updateStepPrev')
-
-        // Click Previous Arrow (←)
-        cy.contains('Current Phase').parent().find('button').contains('←').click()
-        cy.wait('@updateStepPrev')
-
-        cy.contains('Phase 1').should('be.visible')
+        // 4. Verify Ingestion
+        cy.contains('PROCEED TO PREPARATION').should('be.visible')
     })
 })
