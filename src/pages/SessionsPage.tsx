@@ -2052,7 +2052,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                 </div>
 
                 {/* Main Content */}
-                <div className={`flex-1 bg-industrial-steel-950 overflow-y-auto relative ${selectedSession ? 'block' : 'hidden lg:block'}`}>
+                <div className={`flex-1 flex flex-col bg-industrial-steel-950 overflow-hidden relative ${selectedSession ? 'flex' : 'hidden lg:flex'}`}>
                     {!selectedSession ? (
                         <div className="flex items-center justify-center h-full">
                             <div className="text-center text-industrial-steel-500">
