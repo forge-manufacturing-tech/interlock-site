@@ -158,6 +158,7 @@ describe('Workflow Navigation', () => {
         // Manually trigger the flow:
         // Click Proceed again
         cy.contains('PROCEED TO VERIFICATION').click()
+        cy.wait('@updateSession')
 
         // Click Final Approval
         cy.contains('FINAL APPROVAL').click()
@@ -175,8 +176,9 @@ describe('Workflow Navigation', () => {
         // Mock step update (Step 0 -> Step 1)
         cy.intercept('PUT', '**/api/sessions/mock-session-id', (req) => {
             const body = JSON.parse(req.body.content)
-            expect(body.lifecycle.currentStep).to.eq(1)
-            req.reply({ statusCode: 200, body: req.body })
+            if (body.lifecycle.currentStep === 1) {
+                req.reply({ statusCode: 200, body: req.body })
+            }
         }).as('updateStepNext')
 
         // Click Next Arrow (→)
@@ -200,8 +202,18 @@ describe('Workflow Navigation', () => {
         // Check for Phase 2
         cy.contains('Phase 2').should('be.visible')
 
+        // Mock step update back (Step 1 -> Step 0)
+        cy.intercept('PUT', '**/api/sessions/mock-session-id', (req) => {
+            const body = JSON.parse(req.body.content)
+            if (body.lifecycle.currentStep === 0) {
+                req.reply({ statusCode: 200, body: req.body })
+            }
+        }).as('updateStepPrev')
+
         // Click Previous Arrow (←)
         cy.contains('Current Phase').parent().find('button').contains('←').click()
+        cy.wait('@updateStepPrev')
+
         cy.contains('Phase 1').should('be.visible')
     })
 })

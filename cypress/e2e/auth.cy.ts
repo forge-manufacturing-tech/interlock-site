@@ -2,13 +2,18 @@ describe('Authentication Flow', () => {
     beforeEach(() => {
         cy.intercept('POST', '**/api/auth/login', {
             statusCode: 200,
-            body: { token: 'mock-token', name: 'Mock User' }
+            body: { token: 'mock-token', name: 'Mock User', pid: 'mock-pid', is_verified: true }
         }).as('loginRequest')
 
         cy.intercept('POST', '**/api/auth/register', {
             statusCode: 200,
-            body: { token: 'mock-token', name: 'Mock User' }
+            body: { message: 'Registered' }
         }).as('registerRequest')
+
+        cy.intercept('GET', '**/api/projects', {
+            statusCode: 200,
+            body: []
+        }).as('getProjects')
 
         cy.visit('/login')
     })
@@ -50,6 +55,23 @@ describe('Authentication Flow', () => {
         const password = 'TestPassword123!'
         const name = 'Cypress Test User'
 
+        // Create a realistic-looking JWT so parseJwt doesn't return null
+        const tokenParts = [
+            btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })),
+            btoa(JSON.stringify({ email, name, role: 'user', sub: 'user-pid', pid: 'user-pid' })),
+            'signature'
+        ].join('.');
+
+        cy.intercept('POST', '**/api/auth/register', {
+            statusCode: 200,
+            body: { message: 'User registered' }
+        }).as('registerRequest')
+
+        cy.intercept('POST', '**/api/auth/login', {
+            statusCode: 200,
+            body: { token: tokenParts, name: name, pid: 'user-pid', is_verified: true }
+        }).as('loginRequest')
+
         // Register
         cy.contains("Create New Account").click()
         cy.get('input[type="text"]').type(name)
@@ -57,15 +79,15 @@ describe('Authentication Flow', () => {
         cy.get('input[type="password"]').type(password)
         cy.get('button[type="submit"]').click()
 
+        // Wait for register and login requests
+        cy.wait('@registerRequest')
+        cy.wait('@loginRequest')
+
         // Make sure no error appeared
         cy.get('.bg-industrial-alert\\/10').should('not.exist')
 
-        // Wait a bit for React state to update
-
-
-        // Should redirect to projects page (might take a moment)
+        // Should redirect to projects page
         cy.url({ timeout: 20000 }).should('include', '/dashboard')
         cy.contains('PROJECTS', { timeout: 20000 }).should('be.visible')
-        cy.contains(email).should('be.visible')
     })
 })

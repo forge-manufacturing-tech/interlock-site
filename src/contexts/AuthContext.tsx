@@ -38,8 +38,14 @@ function parseJwt(token: string) {
     }
 }
 
+// Initialize OpenAPI token from localStorage immediately to prevent 401 on refresh
+const initialToken = localStorage.getItem('token');
+if (initialToken) {
+    OpenAPI.TOKEN = initialToken;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+    const [token, setToken] = useState<string | null>(initialToken);
     const [viewMode, setViewModeState] = useState<'designer' | 'manufacturer'>(() => {
         return (localStorage.getItem('view_mode') as 'designer' | 'manufacturer') || 'manufacturer';
     });
