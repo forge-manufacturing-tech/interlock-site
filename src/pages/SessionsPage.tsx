@@ -101,54 +101,56 @@ const ProjectDataEditor = ({ data, onUpdate, readOnly }: { data: any, onUpdate?:
     };
 
     return (
-        <div className="space-y-8 p-6 overflow-y-auto max-h-full custom-scrollbar">
-            {tableNames.map((tableName) => {
-                const columns = tables[tableName];
-                const colNames = Object.keys(columns);
-                if (colNames.length === 0) return null;
-                const rowCount = columns[colNames[0]]?.length || 0;
+        <div className="flex flex-col h-full overflow-hidden custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                {tableNames.map((tableName) => {
+                    const columns = tables[tableName];
+                    const colNames = Object.keys(columns);
+                    if (colNames.length === 0) return null;
+                    const rowCount = columns[colNames[0]]?.length || 0;
 
-                return (
-                    <div key={tableName} className="industrial-panel p-0 border border-industrial-concrete bg-industrial-steel-900/30 overflow-hidden">
-                        <div className="bg-industrial-steel-900 border-b border-industrial-concrete px-4 py-2 flex items-center gap-2">
-                            <span className="text-industrial-copper-500">❖</span>
-                            <h4 className="text-xs font-bold text-industrial-steel-200 uppercase tracking-widest">
-                                {tableName.replace(/_/g, ' ')}
-                            </h4>
-                        </div>
-                        <div className="overflow-x-auto custom-scrollbar">
-                            <table className="w-full text-xs font-mono text-left bg-industrial-steel-950/50">
-                                <thead>
-                                    <tr>
-                                        {colNames.map(col => (
-                                            <th key={col} className="p-2 border-b border-r border-industrial-concrete text-industrial-steel-500 whitespace-nowrap bg-industrial-steel-900/50 font-normal uppercase tracking-wider text-[10px]">
-                                                {col}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {Array.from({ length: rowCount }).map((_, rowIndex) => (
-                                        <tr key={rowIndex} className="border-b border-industrial-concrete/20 hover:bg-white/5 transition-colors group">
+                    return (
+                        <div key={tableName} className="industrial-panel p-0 border border-industrial-concrete bg-industrial-steel-900/30 overflow-hidden">
+                            <div className="bg-industrial-steel-900 border-b border-industrial-concrete px-4 py-2 flex items-center gap-2">
+                                <span className="text-industrial-copper-500">❖</span>
+                                <h4 className="text-xs font-bold text-industrial-steel-200 uppercase tracking-widest">
+                                    {tableName.replace(/_/g, ' ')}
+                                </h4>
+                            </div>
+                            <div className="overflow-x-auto custom-scrollbar">
+                                <table className="w-full text-xs font-mono text-left bg-industrial-steel-950/50">
+                                    <thead>
+                                        <tr>
                                             {colNames.map(col => (
-                                                <td key={col} className="p-0 border-r border-industrial-concrete/20 min-w-[120px] relative">
-                                                    <input
-                                                        type="text"
-                                                        readOnly={readOnly}
-                                                        value={columns[col][rowIndex] || ''}
-                                                        onChange={(e) => handleCellChange(tableName, col, rowIndex, e.target.value)}
-                                                        className={`w-full h-full bg-transparent p-2 text-industrial-steel-300 font-mono text-xs focus:outline-none transition-colors border-none ${readOnly ? 'cursor-default' : 'focus:bg-industrial-steel-800 focus:text-white focus:ring-1 focus:ring-inset focus:ring-industrial-copper-500'}`}
-                                                    />
-                                                </td>
+                                                <th key={col} className="p-2 border-b border-r border-industrial-concrete text-industrial-steel-500 whitespace-nowrap bg-industrial-steel-900/50 font-normal uppercase tracking-wider text-[10px]">
+                                                    {col}
+                                                </th>
                                             ))}
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        {Array.from({ length: rowCount }).map((_, rowIndex) => (
+                                            <tr key={rowIndex} className="border-b border-industrial-concrete/20 hover:bg-white/5 transition-colors group">
+                                                {colNames.map(col => (
+                                                    <td key={col} className="p-0 border-r border-industrial-concrete/20 min-w-[120px] relative">
+                                                        <input
+                                                            type="text"
+                                                            readOnly={readOnly}
+                                                            value={columns[col][rowIndex] || ''}
+                                                            onChange={(e) => handleCellChange(tableName, col, rowIndex, e.target.value)}
+                                                            className={`w-full h-full bg-transparent p-2 text-industrial-steel-300 font-mono text-xs focus:outline-none transition-colors border-none ${readOnly ? 'cursor-default' : 'focus:bg-industrial-steel-800 focus:text-white focus:ring-1 focus:ring-inset focus:ring-industrial-copper-500'}`}
+                                                        />
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
-                );
-            })}
+                    );
+                })}
+            </div>
         </div>
     );
 };
@@ -1419,7 +1421,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                         </div>
 
                         {/* Side Info / Recommendations */}
-                        <div className="space-y-6">
+                        <div className="space-y-6 overflow-y-auto custom-scrollbar pr-2">
                             <div className="industrial-panel p-6 border-l-4 border-l-industrial-copper-500">
                                 <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-4">AI Recommendations</h3>
                                 <div className="space-y-4">
@@ -1477,7 +1479,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
     const renderSharedProductView = () => {
         return (
-            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 animate-in fade-in duration-700">
+            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 animate-in fade-in duration-700 overflow-y-auto custom-scrollbar">
                 <div className="flex justify-between items-center mb-8 border-b border-industrial-concrete pb-4">
                     <div>
                         <div className="flex items-center gap-3 mb-1">
@@ -1618,7 +1620,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
     const renderDesignerIngestionView = () => {
         return (
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex">
                 <div className="flex-1 overflow-y-auto p-6">
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="industrial-headline text-2xl">Joint Ingestion Workspace</h2>
@@ -1842,7 +1844,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
         );
 
         return (
-            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6">
+            <div className="flex flex-col max-w-6xl mx-auto w-full p-6 gap-6 pb-12">
 
                 <LifecycleTracker
                     steps={lifecycleSteps}
@@ -2171,7 +2173,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
     }
 
     return (
-        <div className="min-h-screen bg-industrial-steel-950 text-neutral-100 flex flex-col metal-texture">
+        <div className="h-screen bg-industrial-steel-950 text-neutral-100 flex flex-col metal-texture overflow-hidden">
             {/* Header */}
             <header className="border-b border-industrial-concrete bg-industrial-steel-900/80 backdrop-blur-sm sticky top-0 z-50">
                 <div className="px-6 py-4 flex items-center justify-between">
@@ -2203,7 +2205,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
             <div className="flex flex-1 overflow-hidden">
                 {/* Minimal History Sidebar - Hidden for Designers */}
-                <div className={`border-r border-industrial-concrete bg-industrial-steel-900/50 overflow-y-auto scanlines ${viewMode === 'designer' ? 'hidden' : (selectedSession ? 'hidden lg:block w-64' : 'w-full lg:w-64 block')}`}>
+                <div className={`border-r border-industrial-concrete bg-industrial-steel-900/50 overflow-y-auto scanlines lg:w-64 ${viewMode === 'designer' || selectedSession ? 'hidden lg:block' : 'w-full block'}`}>
                     <div className="p-4">
                         <h2 className="text-[10px] font-bold text-industrial-steel-500 uppercase tracking-widest mb-4 font-mono">History</h2>
                         {sessions.length === 0 ? (
@@ -2291,7 +2293,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                             {/* MANUFACTURER VIEW */}
                             {viewMode === 'manufacturer' && (
                                 <div className="flex-1 flex overflow-hidden">
-                                    <div className="flex-1 overflow-y-auto">
+                                    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar">
                                         {workflowStage === 'ingestion' && (
                                             <>
                                                 {(blobs.length === 0 && wizardStep === 1) ? renderEmptyState() : renderIngestionWorkbench()}
@@ -2303,7 +2305,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                     </div>
                                     <div
                                         ref={resizeRef}
-                                        className="border-l border-industrial-concrete bg-industrial-steel-900/50 flex flex-col h-full relative"
+                                        className="hidden lg:flex border-l border-industrial-concrete bg-industrial-steel-900/50 flex-col h-full relative"
                                         style={{ width: `${chatPanelWidth}px` }}
                                     >
                                         <div

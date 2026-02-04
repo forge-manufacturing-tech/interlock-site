@@ -109,7 +109,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
     return (
         <div className="flex flex-col h-full industrial-panel rounded-sm overflow-hidden border-industrial-copper-500/20 shadow-glow-copper/5">
             {/* Chat Header / Context */}
-            <div className="px-4 py-2 bg-industrial-steel-900/80 border-b border-industrial-concrete flex items-center justify-between">
+            <div className="px-4 py-2 bg-industrial-steel-900/80 border-b border-industrial-concrete flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-industrial-copper-500 rounded-full animate-pulse shadow-glow-copper" />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-industrial-steel-300 font-mono">Secure-AI-Link</span>
@@ -133,7 +133,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
 
             <div
                 ref={scrollContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-4 scanlines bg-industrial-steel-950/50 custom-scrollbar"
+                className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scanlines bg-industrial-steel-950/50 custom-scrollbar"
                 style={{ scrollBehavior: 'smooth' }}
             >
                 {isInitializing && messages.length === 0 && (
@@ -161,7 +161,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                                     {new Date(msg.created_at).toLocaleTimeString()}
                                 </div>
                             </div>
-                            <div className="text-sm whitespace-pre-wrap font-mono leading-relaxed tracking-tight">
+                            <div className="text-sm whitespace-pre-wrap font-mono leading-relaxed tracking-tight break-words">
                                 {msg.content}
                             </div>
                         </div>
@@ -181,7 +181,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                 <div ref={messagesEndRef} className="h-2" />
             </div>
 
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-industrial-concrete bg-industrial-steel-900/90">
+            <form onSubmit={handleSendMessage} className="p-4 border-t border-industrial-concrete bg-industrial-steel-900/90 shrink-0">
                 <div className="flex gap-2">
                     <input
                         type="text"

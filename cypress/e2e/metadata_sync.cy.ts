@@ -118,11 +118,10 @@ describe('Metadata Sync Feature', () => {
         }).as('queueTasks')
 
         // Click Initialize
-        const initBtn = cy.contains('button', 'Initialize Metadata Analysis')
-        initBtn.click()
+        cy.contains('button', 'Initialize Metadata Analysis').click()
 
-        // Verify Processing State
-        cy.contains('Initializing Metadata Analysis...').should('be.visible')
+        // Verify Processing State - The processing status is now shown in the header area
+        cy.contains('AI Agent Working').should('be.visible')
         cy.wait('@queueTasks')
 
         // Simulate Metadata Creation via Polling
