@@ -2,8 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type UpdateProjectParams = {
-    description?: string | null;
-    name?: string | null;
+export type CreateSessionDto = {
+    title?: string;
+    content?: string;
+    project_id?: string;
 };
 

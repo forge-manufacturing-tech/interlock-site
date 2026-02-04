@@ -2,8 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type CreateProjectParams = {
-    description?: string | null;
+export type RegisterDto = {
+    email: string;
     name: string;
+    password: string;
 };
 

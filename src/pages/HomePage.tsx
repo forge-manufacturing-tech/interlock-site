@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { useNavigate } from 'react-router-dom';
 
 export function HomePage() {
@@ -34,7 +34,7 @@ export function HomePage() {
                         <span className="text-[10px] font-mono text-industrial-copper-500 uppercase tracking-widest">Bridging the Gap</span>
                     </div>
                     <h2 className="industrial-headline text-5xl md:text-7xl mb-8 leading-tight">
-                        ACCELERATE <br/> <span className="text-industrial-copper-500">TECHNOLOGY TRANSFER</span>
+                        ACCELERATE <br /> <span className="text-industrial-copper-500">TECHNOLOGY TRANSFER</span>
                     </h2>
                     <p className="text-industrial-steel-300 text-lg md:text-xl max-w-3xl mx-auto leading-relaxed font-light mb-12">
                         Interlock solves the gap between designers and manufacturers by streamlining the complex back-and-forth process of moving form to factory.
@@ -182,7 +182,7 @@ export function HomePage() {
                         CREATE ACCOUNT
                     </button>
                     <div className="mt-6">
-                         <button
+                        <button
                             onClick={() => navigate('/login')}
                             className="text-industrial-steel-500 hover:text-industrial-copper-500 text-xs font-mono uppercase tracking-widest transition-colors"
                         >

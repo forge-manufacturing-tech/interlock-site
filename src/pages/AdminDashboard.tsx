@@ -1,7 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ControllersAdminService, ControllersAuthService, UserResponse } from '../api/generated';
+import { UsersService, ControllersAuthService } from '../api/generated';
 import { useAuth } from '../contexts/AuthContext';
+
+// Temporary type definition until backend provides proper types
+interface UserResponse {
+    pid: string;
+    email: string;
+    name: string;
+    role: string;
+}
 
 export function AdminDashboard() {
     const [users, setUsers] = useState<UserResponse[]>([]);
@@ -29,9 +37,9 @@ export function AdminDashboard() {
     const loadUsers = async (signal?: AbortSignal) => {
         try {
             setLoading(true);
-            const data = await ControllersAdminService.listUsers();
+            const data = await UsersService.usersControllerFindAll();
             if (signal?.aborted) return;
-            setUsers(data);
+            setUsers(data as UserResponse[]);
         } catch (error: any) {
             if (signal?.aborted) return;
             console.error('Failed to load users', error);
@@ -42,53 +50,28 @@ export function AdminDashboard() {
         }
     };
 
-    const handlePromote = async (userId: string) => {
-        try {
-            await ControllersAdminService.promote(userId);
-            loadUsers();
-        } catch (error) {
-            console.error('Failed to promote user', error);
-            alert('Failed to promote user');
-        }
+    const handlePromote = async (_userId: string) => {
+        // TODO: Backend admin endpoints not yet implemented
+        alert('Admin functionality is not yet available. The backend needs to implement admin endpoints.');
+        console.warn('Promote endpoint not available in backend');
     };
 
-    const handleDemote = async (userId: string) => {
-        if (confirm('Are you sure you want to demote this admin?')) {
-            try {
-                await ControllersAdminService.demote(userId);
-                loadUsers();
-            } catch (error) {
-                console.error('Failed to demote user', error);
-                alert('Failed to demote user');
-            }
-        }
+    const handleDemote = async (_userId: string) => {
+        // TODO: Backend admin endpoints not yet implemented
+        alert('Admin functionality is not yet available. The backend needs to implement admin endpoints.');
+        console.warn('Demote endpoint not available in backend');
     };
 
-    const handleDelete = async (userId: string) => {
-        if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-            try {
-                await ControllersAdminService.removeUser(userId);
-                loadUsers();
-            } catch (error) {
-                console.error('Failed to delete user', error);
-                alert('Failed to delete user');
-            }
-        }
+    const handleDelete = async (_userId: string) => {
+        // TODO: Backend admin endpoints not yet implemented
+        alert('Admin functionality is not yet available. The backend needs to implement admin endpoints.');
+        console.warn('Delete user endpoint not available in backend');
     };
 
     const handleBulkDelete = async () => {
-        if (!confirm(`Are you sure you want to delete ${selectedUsers.size} users? This action cannot be undone.`)) return;
-
-        try {
-            await Promise.all(Array.from(selectedUsers).map(id => ControllersAdminService.removeUser(id)));
-            setSelectedUsers(new Set());
-            loadUsers();
-            alert('Users deleted successfully');
-        } catch (error) {
-            console.error('Failed to delete some users', error);
-            alert('Failed to delete some users');
-            loadUsers();
-        }
+        // TODO: Backend admin endpoints not yet implemented
+        alert('Admin functionality is not yet available. The backend needs to implement admin endpoints.');
+        console.warn('Bulk delete endpoint not available in backend');
     };
 
     const toggleSelectAll = () => {
@@ -112,7 +95,7 @@ export function AdminDashboard() {
     const handleAddUser = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await ControllersAuthService.register({
+            await ControllersAuthService.authControllerRegister({
                 email: newUserEmail,
                 name: newUserName,
                 password: newUserPassword
@@ -132,18 +115,12 @@ export function AdminDashboard() {
     const handleResetPassword = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedUser) return;
-        try {
-            await ControllersAdminService.resetPassword(selectedUser.pid, {
-                password: resetPasswordValue
-            });
-            setShowResetModal(false);
-            setResetPasswordValue('');
-            setSelectedUser(null);
-            alert('Password reset successfully');
-        } catch (error) {
-            console.error('Failed to reset password', error);
-            alert('Failed to reset password');
-        }
+        // TODO: Backend admin endpoints not yet implemented
+        alert('Admin functionality is not yet available. The backend needs to implement admin endpoints.');
+        console.warn('Reset password endpoint not available in backend');
+        setShowResetModal(false);
+        setResetPasswordValue('');
+        setSelectedUser(null);
     };
 
     const openResetModal = (user: UserResponse) => {
@@ -246,8 +223,8 @@ export function AdminDashboard() {
                                     <td className="p-4 font-mono text-sm text-industrial-steel-400">{u.email}</td>
                                     <td className="p-4">
                                         <span className={`px-2 py-1 text-xs rounded-sm uppercase tracking-wide font-bold ${u.role === 'admin'
-                                                ? 'bg-industrial-copper-900/50 text-industrial-copper-400 border border-industrial-copper-900'
-                                                : 'bg-industrial-steel-800 text-industrial-steel-400 border border-industrial-steel-700'
+                                            ? 'bg-industrial-copper-900/50 text-industrial-copper-400 border border-industrial-copper-900'
+                                            : 'bg-industrial-steel-800 text-industrial-steel-400 border border-industrial-steel-700'
                                             }`}>
                                             {u.role}
                                         </span>

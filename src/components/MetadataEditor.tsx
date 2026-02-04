@@ -1,4 +1,4 @@
-import React from 'react';
+
 
 interface MetadataEditorProps {
     metadata: any;
@@ -117,12 +117,12 @@ export function MetadataEditor({ metadata, onChange, readOnly = false }: Metadat
                             className="w-full industrial-input p-2 font-mono text-sm"
                         />
                     </div>
-                     <div>
+                    <div>
                         <label className="block text-[10px] font-mono text-industrial-steel-400 uppercase tracking-widest mb-2">Critical Items</label>
                         <div className="space-y-1">
                             {(metadata.bom_summary?.critical_items || []).map((item: string, idx: number) => (
                                 <div key={idx} className="flex gap-2">
-                                     <input
+                                    <input
                                         value={item}
                                         onChange={(e) => {
                                             const newItems = [...metadata.bom_summary.critical_items];
@@ -132,7 +132,7 @@ export function MetadataEditor({ metadata, onChange, readOnly = false }: Metadat
                                         disabled={readOnly}
                                         className="flex-1 industrial-input py-1 px-2 text-xs font-mono"
                                     />
-                                     {!readOnly && (
+                                    {!readOnly && (
                                         <button
                                             onClick={() => {
                                                 const newItems = metadata.bom_summary.critical_items.filter((_: any, i: number) => i !== idx);
@@ -143,7 +143,7 @@ export function MetadataEditor({ metadata, onChange, readOnly = false }: Metadat
                                     )}
                                 </div>
                             ))}
-                             {!readOnly && (
+                            {!readOnly && (
                                 <button
                                     onClick={() => {
                                         const newItems = [...(metadata.bom_summary?.critical_items || []), "New Item"];
@@ -159,14 +159,14 @@ export function MetadataEditor({ metadata, onChange, readOnly = false }: Metadat
 
             {/* Risk Assessment Section */}
             <div className="industrial-panel p-6 border-l-4 border-l-industrial-alert">
-                 <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-4 flex items-center gap-2">
+                <h3 className="text-xs font-bold text-white uppercase tracking-widest mb-4 flex items-center gap-2">
                     <span className="text-lg text-industrial-alert">⚠</span> Risk Assessment
                 </h3>
                 <div className="space-y-2">
                     {(metadata.risk_assessment?.issues || []).map((issue: any, idx: number) => (
-                         <div key={idx} className="bg-red-900/10 border border-red-500/20 p-3 rounded-sm flex gap-4 items-start">
-                             <div className="w-24">
-                                 <select
+                        <div key={idx} className="bg-red-900/10 border border-red-500/20 p-3 rounded-sm flex gap-4 items-start">
+                            <div className="w-24">
+                                <select
                                     value={issue.severity || 'Low'}
                                     onChange={(e) => {
                                         const newIssues = [...metadata.risk_assessment.issues];
@@ -175,14 +175,14 @@ export function MetadataEditor({ metadata, onChange, readOnly = false }: Metadat
                                     }}
                                     disabled={readOnly}
                                     className="w-full bg-black/40 text-[10px] text-red-400 font-bold uppercase border border-red-500/30 rounded-sm px-1 py-1"
-                                 >
-                                     <option value="Low">Low</option>
-                                     <option value="Medium">Medium</option>
-                                     <option value="High">High</option>
-                                     <option value="Critical">Critical</option>
-                                 </select>
-                             </div>
-                             <textarea
+                                >
+                                    <option value="Low">Low</option>
+                                    <option value="Medium">Medium</option>
+                                    <option value="High">High</option>
+                                    <option value="Critical">Critical</option>
+                                </select>
+                            </div>
+                            <textarea
                                 value={issue.description || issue}
                                 onChange={(e) => {
                                     const newIssues = [...metadata.risk_assessment.issues];
@@ -202,7 +202,7 @@ export function MetadataEditor({ metadata, onChange, readOnly = false }: Metadat
                                     className="text-industrial-steel-600 hover:text-red-500"
                                 >×</button>
                             )}
-                         </div>
+                        </div>
                     ))}
                     {!readOnly && (
                         <button

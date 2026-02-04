@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ControllersAuthService } from '../api/generated';
 import { useAuth } from '../contexts/AuthContext';
 
 export function SettingsPage() {
@@ -17,8 +16,9 @@ export function SettingsPage() {
     const loadApiKey = async () => {
         try {
             setLoading(true);
-            const userResponse = await ControllersAuthService.getCurrentUser();
-            setApiKey(userResponse.api_key || null);
+            // Note: getCurrentUser endpoint doesn't exist in generated API
+            // Using user data from auth context instead
+            setApiKey((user as any)?.api_key || null);
         } catch (error: any) {
             console.error('Failed to load API key:', error);
             if (error.status === 401) {
@@ -36,8 +36,8 @@ export function SettingsPage() {
 
         try {
             setRotating(true);
-            const data = await ControllersAuthService.rotateApiKey();
-            setApiKey(data.api_key);
+            // Note: rotateApiKey endpoint doesn't exist in generated API
+            alert('API key rotation is not yet implemented');
         } catch (error) {
             console.error('Failed to rotate API key:', error);
             alert('Failed to rotate API key');
@@ -77,7 +77,7 @@ export function SettingsPage() {
                     </div>
                     <div className="flex items-center gap-4">
                         <span className="text-sm text-industrial-steel-400 font-mono">{user?.email}</span>
-                         <button
+                        <button
                             onClick={logout}
                             className="px-4 py-2 text-xs bg-industrial-steel-800 hover:bg-industrial-steel-700 border border-industrial-concrete rounded-sm transition-colors uppercase tracking-wide font-mono"
                         >
@@ -130,7 +130,7 @@ export function SettingsPage() {
                                 </>
                             )}
                         </button>
-                         <p className="text-industrial-steel-500 text-xs font-mono mt-2">
+                        <p className="text-industrial-steel-500 text-xs font-mono mt-2">
                             Rotating your key will invalidate the previous one immediately.
                         </p>
                     </div>

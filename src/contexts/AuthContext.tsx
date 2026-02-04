@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const login = async (email: string, password: string) => {
-        const response = await ControllersAuthService.login({ email, password });
+        const response = await ControllersAuthService.authControllerLogin({ email, password });
         console.log('Login Response from Backend:', response);
         const newToken = response.token;
         const decoded = parseJwt(newToken);
@@ -115,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const register = async (email: string, password: string, name: string) => {
-        await ControllersAuthService.register({ email, password, name });
+        await ControllersAuthService.authControllerRegister({ email, password, name });
         // The new spec implies register does not return a token, so we login.
         await login(email, password);
     };

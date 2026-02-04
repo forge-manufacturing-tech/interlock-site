@@ -2,11 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type MessageResponse = {
-    content: string;
-    created_at: string;
-    id: string;
-    role: string;
-    session_id: string;
+export type UpdateProjectDto = {
+    name?: string;
+    description?: string;
 };
 

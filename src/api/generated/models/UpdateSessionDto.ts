@@ -2,7 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type ShareProjectParams = {
-    email: string;
+export type UpdateSessionDto = {
+    title?: string;
+    content?: string;
+    project_id?: string;
 };
 

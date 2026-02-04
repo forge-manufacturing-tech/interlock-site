@@ -1,9 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ControllersSessionsService, ControllersProjectsService, SessionResponse } from '../api/generated';
+import { ControllersSessionsService, ControllersProjectsService } from '../api/generated';
 
-interface SessionWithProject extends SessionResponse {
+interface SessionWithProject {
+    id: string;
+    title: string;
+    content: string;
+    project_id: string;
+    created_at: string;
+    updated_at: string;
     projectName?: string;
     lifecycleStep?: string;
     lifecycleStepsCount?: number;
@@ -25,16 +31,16 @@ export function DesignerDashboard() {
     const loadData = async (signal?: AbortSignal) => {
         try {
             setLoading(true);
-            const projects = await ControllersProjectsService.list();
+            const projects = await ControllersProjectsService.projectsControllerFindAll();
             if (signal?.aborted) return;
 
             const allSessions: SessionWithProject[] = [];
 
-            await Promise.all(projects.map(async (p) => {
+            await Promise.all(projects.map(async (p: any) => {
                 if (signal?.aborted) return;
                 try {
-                    const projectSessions = await ControllersSessionsService.list(p.id);
-                    projectSessions.forEach(s => {
+                    const projectSessions = await ControllersSessionsService.sessionControllerFindAll(p.id);
+                    projectSessions.forEach((s: any) => {
                         let lifecycleStep = 'Pending Initiation';
                         let lifecycleStepsCount = 0;
                         let lifecycleCurrentIndex = 0;

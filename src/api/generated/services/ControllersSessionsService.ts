@@ -2,20 +2,20 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { Params } from '../models/Params';
-import type { SessionResponse } from '../models/SessionResponse';
+import type { CreateSessionDto } from '../models/CreateSessionDto';
+import type { UpdateSessionDto } from '../models/UpdateSessionDto';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ControllersSessionsService {
     /**
      * @param projectId
-     * @returns SessionResponse List sessions
+     * @returns any
      * @throws ApiError
      */
-    public static list(
-        projectId?: string | null,
-    ): CancelablePromise<Array<SessionResponse>> {
+    public static sessionControllerFindAll(
+        projectId: string,
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/sessions',
@@ -26,12 +26,12 @@ export class ControllersSessionsService {
     }
     /**
      * @param requestBody
-     * @returns SessionResponse Session created
+     * @returns any
      * @throws ApiError
      */
-    public static add(
-        requestBody: Params,
-    ): CancelablePromise<SessionResponse> {
+    public static sessionControllerCreate(
+        requestBody: CreateSessionDto,
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/sessions',
@@ -40,53 +40,31 @@ export class ControllersSessionsService {
         });
     }
     /**
-     * @param id Session ID
-     * @returns any Session deleted
+     * @param id
+     * @returns any
      * @throws ApiError
      */
-    public static remove(
+    public static sessionControllerFindOne(
         id: string,
     ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/sessions/{id}',
-            path: {
-                'id': id,
-            },
-            errors: {
-                404: `Session not found`,
-            },
-        });
-    }
-    /**
-     * @param id Session ID
-     * @returns SessionResponse Get session
-     * @throws ApiError
-     */
-    public static getOne(
-        id: string,
-    ): CancelablePromise<SessionResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/sessions/{id}',
             path: {
                 'id': id,
             },
-            errors: {
-                404: `Session not found`,
-            },
         });
     }
     /**
-     * @param id Session ID
+     * @param id
      * @param requestBody
-     * @returns SessionResponse Session updated
+     * @returns any
      * @throws ApiError
      */
-    public static update(
+    public static sessionControllerUpdate(
         id: string,
-        requestBody: Params,
-    ): CancelablePromise<SessionResponse> {
+        requestBody: UpdateSessionDto,
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PUT',
             url: '/api/sessions/{id}',
@@ -95,8 +73,53 @@ export class ControllersSessionsService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                404: `Session not found`,
+        });
+    }
+    /**
+     * @param id
+     * @returns any
+     * @throws ApiError
+     */
+    public static sessionControllerRemove(
+        id: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/sessions/{id}',
+            path: {
+                'id': id,
+            },
+        });
+    }
+    /**
+     * @param id
+     * @returns any
+     * @throws ApiError
+     */
+    public static sessionControllerCancel(
+        id: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/sessions/{id}/cancel',
+            path: {
+                'id': id,
+            },
+        });
+    }
+    /**
+     * @param id
+     * @returns any
+     * @throws ApiError
+     */
+    public static sessionControllerRetry(
+        id: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/sessions/{id}/retry',
+            path: {
+                'id': id,
             },
         });
     }

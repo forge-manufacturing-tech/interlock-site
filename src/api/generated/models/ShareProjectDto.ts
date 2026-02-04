@@ -2,9 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type UserSearchResponse = {
+export type ShareProjectDto = {
     email: string;
-    id: number;
-    name: string;
 };
 

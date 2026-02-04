@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ControllersProjectsService, ProjectResponse } from '../api/generated';
+import { ControllersProjectsService } from '../api/generated';
 import { useAuth } from '../contexts/AuthContext';
 
 export function ProjectsPage() {
-    const [projects, setProjects] = useState<ProjectResponse[]>([]);
+    const [projects, setProjects] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newProjectName, setNewProjectName] = useState('');
@@ -21,7 +21,7 @@ export function ProjectsPage() {
     const loadProjects = async (signal?: AbortSignal) => {
         try {
             setLoading(true);
-            const data = await ControllersProjectsService.list();
+            const data = await ControllersProjectsService.projectsControllerFindAll();
             if (signal?.aborted) return;
             setProjects(data);
         } catch (error: any) {
@@ -39,7 +39,7 @@ export function ProjectsPage() {
     const handleCreateProject = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await ControllersProjectsService.create({
+            await ControllersProjectsService.projectsControllerCreate({
                 name: newProjectName,
                 description: newProjectDescription || undefined,
             });
@@ -60,7 +60,7 @@ export function ProjectsPage() {
         e.stopPropagation();
         if (window.confirm('Are you sure you want to delete this project?')) {
             try {
-                await ControllersProjectsService.remove(projectId);
+                await ControllersProjectsService.projectsControllerRemove(projectId);
                 loadProjects();
             } catch (error) {
                 console.error('Failed to delete project:', error);

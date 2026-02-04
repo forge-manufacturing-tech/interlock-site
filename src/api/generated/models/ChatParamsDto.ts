@@ -2,7 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type ApiKeyResponse = {
-    api_key: string;
-    created_at: string;
+export type ChatParamsDto = {
+    message: string;
 };
+

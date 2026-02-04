@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type ResetPasswordParams = {
-    password: string;
+export type QueueTasksDto = {
+    tasks: Array<string>;
 };
+

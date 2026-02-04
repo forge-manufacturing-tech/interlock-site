@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 interface LifecycleTrackerProps {
     steps: string[];
@@ -99,7 +99,7 @@ export function LifecycleTracker({ steps, currentStep, isEditable, onUpdate, onG
 
     return (
         <div className="industrial-panel p-6 mb-6 relative group">
-             <div className="flex justify-between items-end mb-8">
+            <div className="flex justify-between items-end mb-8">
                 <h3 className="text-xs font-bold text-industrial-steel-400 uppercase tracking-widest font-mono flex items-center gap-2">
                     <span className="w-2 h-2 bg-industrial-copper-500 rounded-full animate-pulse"></span>
                     Production Lifecycle
@@ -114,9 +114,9 @@ export function LifecycleTracker({ steps, currentStep, isEditable, onUpdate, onG
             <div className="relative px-4">
                 {/* Connecting Lines Container */}
                 <div className="absolute top-4 left-4 right-4 h-0.5 z-0">
-                     {/* Background Line */}
+                    {/* Background Line */}
                     <div className="absolute inset-0 bg-industrial-steel-800"></div>
-                     {/* Active Progress Line */}
+                    {/* Active Progress Line */}
                     <div
                         className="absolute top-0 left-0 h-full bg-industrial-copper-500 transition-all duration-500 ease-out"
                         style={{ width: `${Math.min((currentStep / (Math.max(steps.length - 1, 1))) * 100, 100)}%` }}

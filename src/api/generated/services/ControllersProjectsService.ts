@@ -2,20 +2,18 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { CreateProjectParams } from '../models/CreateProjectParams';
-import type { ProjectResponse } from '../models/ProjectResponse';
-import type { ShareProjectParams } from '../models/ShareProjectParams';
-import type { UpdateProjectParams } from '../models/UpdateProjectParams';
-import type { UserSearchResponse } from '../models/UserSearchResponse';
+import type { CreateProjectDto } from '../models/CreateProjectDto';
+import type { ShareProjectDto } from '../models/ShareProjectDto';
+import type { UpdateProjectDto } from '../models/UpdateProjectDto';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ControllersProjectsService {
     /**
-     * @returns ProjectResponse List all projects for current user
+     * @returns any
      * @throws ApiError
      */
-    public static list(): CancelablePromise<Array<ProjectResponse>> {
+    public static projectsControllerFindAll(): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/projects',
@@ -23,12 +21,12 @@ export class ControllersProjectsService {
     }
     /**
      * @param requestBody
-     * @returns ProjectResponse Project created
+     * @returns any
      * @throws ApiError
      */
-    public static create(
-        requestBody: CreateProjectParams,
-    ): CancelablePromise<ProjectResponse> {
+    public static projectsControllerCreate(
+        requestBody: CreateProjectDto,
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/projects',
@@ -37,54 +35,31 @@ export class ControllersProjectsService {
         });
     }
     /**
-     * @param id Project ID
-     * @returns any Project deleted
+     * @param id
+     * @returns any
      * @throws ApiError
      */
-    public static remove(
+    public static projectsControllerFindOne(
         id: string,
     ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/projects/{id}',
-            path: {
-                'id': id,
-            },
-            errors: {
-                404: `Project not found`,
-            },
-        });
-    }
-    /**
-     * @param id Project ID
-     * @returns ProjectResponse Get project
-     * @throws ApiError
-     */
-    public static getOne(
-        id: string,
-    ): CancelablePromise<ProjectResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/projects/{id}',
             path: {
                 'id': id,
             },
-            errors: {
-                403: `Unauthorized`,
-                404: `Project not found`,
-            },
         });
     }
     /**
-     * @param id Project ID
+     * @param id
      * @param requestBody
-     * @returns ProjectResponse Project updated
+     * @returns any
      * @throws ApiError
      */
-    public static update(
+    public static projectsControllerUpdate(
         id: string,
-        requestBody: UpdateProjectParams,
-    ): CancelablePromise<ProjectResponse> {
+        requestBody: UpdateProjectDto,
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PUT',
             url: '/api/projects/{id}',
@@ -93,20 +68,33 @@ export class ControllersProjectsService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                404: `Project not found`,
+        });
+    }
+    /**
+     * @param id
+     * @returns any
+     * @throws ApiError
+     */
+    public static projectsControllerRemove(
+        id: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/projects/{id}',
+            path: {
+                'id': id,
             },
         });
     }
     /**
-     * @param id Project ID
+     * @param id
      * @param requestBody
-     * @returns any Project shared
+     * @returns any
      * @throws ApiError
      */
-    public static share(
+    public static projectsControllerShare(
         id: string,
-        requestBody: ShareProjectParams,
+        requestBody: ShareProjectDto,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -116,26 +104,6 @@ export class ControllersProjectsService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                400: `User already in project`,
-                404: `Project or User not found`,
-            },
-        });
-    }
-    /**
-     * @param q Search query
-     * @returns UserSearchResponse Search results
-     * @throws ApiError
-     */
-    public static searchUsers(
-        q: string,
-    ): CancelablePromise<Array<UserSearchResponse>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/users/search',
-            query: {
-                'q': q,
-            },
         });
     }
 }
