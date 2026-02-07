@@ -803,7 +803,11 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
             const newBlobs = await ControllersBlobsService.list(selectedSession.id);
             setBlobs(newBlobs.filter(b => b.session_id === selectedSession.id));
 
-            alert('Upload complete');
+            if (wizardStartType === 'bom' || wizardStartType === 'sketch') {
+                await handleConvert();
+            } else {
+                alert('Upload complete');
+            }
         } catch (error) {
             console.error('Upload failed:', error);
             alert('Upload failed');
