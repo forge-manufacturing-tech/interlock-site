@@ -48,6 +48,11 @@ describe('Upload Workflow Queue Trigger', () => {
             body: []
         }).as('getSessions')
 
+        cy.intercept('GET', '**/api/chat/messages*', {
+            statusCode: 200,
+            body: []
+        }).as('getMessages')
+
         // Setup: Register, login, and create a project
         cy.visit('/login')
         cy.contains("Create New Account").click()
