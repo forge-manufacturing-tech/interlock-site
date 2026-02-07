@@ -4,7 +4,7 @@ import { ControllersChatService, MessageResponse, BlobResponse } from '../api/ge
 interface ChatInterfaceProps {
     sessionId: string;
     blobs: BlobResponse[];
-    onRefreshBlobs?: () => void;
+    onRefreshBlobs?: () => void | Promise<void>;
     refreshTrigger?: number;
 }
 
@@ -85,8 +85,10 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
 
         try {
             await ControllersChatService.chat(sessionId, { message: contentToSend });
-            loadMessages();
-            onRefreshBlobs?.();
+            await loadMessages();
+            if (onRefreshBlobs) {
+                await onRefreshBlobs();
+            }
         } catch (error) {
             console.error('Chat error:', error);
             alert('Failed to send message');
@@ -122,6 +124,14 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                             </div>
                         ))}
                     </div>
+                    {onRefreshBlobs && (
+                        <button
+                            onClick={() => onRefreshBlobs()}
+                            className="text-[9px] font-mono text-industrial-steel-500 hover:text-industrial-copper-500 uppercase tracking-widest transition-colors flex items-center gap-1"
+                        >
+                            <span>⟳</span> Refresh
+                        </button>
+                    )}
                     <button
                         onClick={handleClearChat}
                         className="text-[9px] font-mono text-industrial-steel-500 hover:text-industrial-alert uppercase tracking-widest transition-colors"
