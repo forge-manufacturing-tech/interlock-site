@@ -516,6 +516,7 @@ Ensure these are high-resolution and technical in style (blueprint or clean CAD 
 
             await ControllersChatService.chat(selectedSession.id, { message: prompt });
             setChatRefreshTrigger(prev => prev + 1);
+            await loadSessionData(selectedSession.id);
         } catch (error) {
             console.error('Failed to generate critique:', error);
             alert('Failed to generate critique');
