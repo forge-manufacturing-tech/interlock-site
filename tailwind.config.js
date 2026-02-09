@@ -10,17 +10,18 @@ export default {
                 // Factory Industrial Dark Theme
                 industrial: {
                     // Copper/Rust accent - primary brand color
+                    // UPDATED: Safety Orange (#FF6B00) palette
                     copper: {
-                        50: '#fef5f1',
-                        100: '#fde8df',
-                        200: '#fbd1be',
-                        300: '#f7ae8d',
-                        400: '#f28a5c',
-                        500: '#cc6731',  // Main accent
-                        600: '#b85525',
-                        700: '#9a4520',
-                        800: '#7d3a1e',
-                        900: '#66321d',
+                        50: '#fff3e0',
+                        100: '#ffe0b2',
+                        200: '#ffcc80',
+                        300: '#ffb74d',
+                        400: '#ffa726',
+                        500: '#ff6b00',  // Main accent (Safety Orange)
+                        600: '#e65100',
+                        700: '#bf360c',
+                        800: '#dd2c00',
+                        900: '#bf360c',
                     },
                     // Steel/Metal grays - for backgrounds and surfaces
                     steel: {
