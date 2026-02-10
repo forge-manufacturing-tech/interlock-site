@@ -4,7 +4,7 @@ import { ControllersChatService, MessageResponse, BlobResponse } from '../api/ge
 interface ChatInterfaceProps {
     sessionId: string;
     blobs: BlobResponse[];
-    onRefreshBlobs?: () => void;
+    onRefreshBlobs?: () => void | Promise<void>;
     refreshTrigger?: number;
 }
 
@@ -12,6 +12,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
     const [messages, setMessages] = useState<MessageResponse[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [isInitializing, setIsInitializing] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -21,27 +22,40 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
         }
     };
 
+    const lastSessionIdRef = useRef(sessionId);
+
     useEffect(() => {
-        loadMessages();
+        const controller = new AbortController();
+
+        // Only clear messages when truly switching sessions, not on every refresh
+        if (lastSessionIdRef.current !== sessionId) {
+            setMessages([]);
+            lastSessionIdRef.current = sessionId;
+        }
+
+        loadMessages(controller.signal);
+        return () => controller.abort();
     }, [sessionId, refreshTrigger]);
 
     useEffect(() => {
         scrollToBottom();
     }, [messages, loading]);
 
-    const loadMessages = async () => {
+    const loadMessages = async (signal?: AbortSignal) => {
         try {
-            let data = await ControllersChatService.listMessages(sessionId);
-
-            if (data.length === 0 && initialMessage) {
-                // Send hidden initial message to seed the conversation
-                await ControllersChatService.chat(sessionId, { message: initialMessage });
-                data = await ControllersChatService.listMessages(sessionId);
+            // Only show the "Establishing Secure Link" message if we don't already have messages
+            if (messages.length === 0) {
+                setIsInitializing(true);
             }
+            let data = await ControllersChatService.listMessages(sessionId);
+            if (signal?.aborted) return;
 
             setMessages(data);
         } catch (error) {
+            if (signal?.aborted) return;
             console.error('Failed to load messages:', error);
+        } finally {
+            if (!signal?.aborted) setIsInitializing(false);
         }
     };
 
@@ -53,19 +67,28 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
         setInput('');
         setLoading(true);
 
+        let contentToSend = userMessage;
+
+        // If this is the FIRST message, prepend the system prompt (initialMessage)
+        if (messages.length === 0 && initialMessage) {
+            contentToSend = `${initialMessage}\n\n${userMessage}`;
+        }
+
         const tempMsg: MessageResponse = {
             id: crypto.randomUUID(),
             session_id: sessionId,
             role: 'user',
-            content: userMessage,
+            content: contentToSend,
             created_at: new Date().toISOString()
         };
         setMessages(prev => [...prev, tempMsg]);
 
         try {
-            await ControllersChatService.chat(sessionId, { message: userMessage });
-            loadMessages();
-            onRefreshBlobs?.();
+            await ControllersChatService.chat(sessionId, { message: contentToSend });
+            await loadMessages();
+            if (onRefreshBlobs) {
+                await onRefreshBlobs();
+            }
         } catch (error) {
             console.error('Chat error:', error);
             alert('Failed to send message');
@@ -88,7 +111,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
     return (
         <div className="flex flex-col h-full industrial-panel rounded-sm overflow-hidden border-industrial-copper-500/20 shadow-glow-copper/5">
             {/* Chat Header / Context */}
-            <div className="px-4 py-2 bg-industrial-steel-900/80 border-b border-industrial-concrete flex items-center justify-between">
+            <div className="px-4 py-2 bg-industrial-steel-900/80 border-b border-industrial-concrete flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-industrial-copper-500 rounded-full animate-pulse shadow-glow-copper" />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-industrial-steel-300 font-mono">Secure-AI-Link</span>
@@ -101,6 +124,14 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                             </div>
                         ))}
                     </div>
+                    {onRefreshBlobs && (
+                        <button
+                            onClick={() => onRefreshBlobs()}
+                            className="text-[9px] font-mono text-industrial-steel-500 hover:text-industrial-copper-500 uppercase tracking-widest transition-colors flex items-center gap-1"
+                        >
+                            <span>⟳</span> Refresh
+                        </button>
+                    )}
                     <button
                         onClick={handleClearChat}
                         className="text-[9px] font-mono text-industrial-steel-500 hover:text-industrial-alert uppercase tracking-widest transition-colors"
@@ -112,16 +143,21 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
 
             <div
                 ref={scrollContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-4 scanlines bg-industrial-steel-950/50 custom-scrollbar"
+                className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scanlines bg-industrial-steel-950/50 custom-scrollbar"
                 style={{ scrollBehavior: 'smooth' }}
             >
-                {messages.length === 0 && (
+                {isInitializing && messages.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full opacity-50 select-none animate-pulse">
+                        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-industrial-copper-500">Establishing Secure Link...</div>
+                    </div>
+                )}
+                {!isInitializing && messages.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-full opacity-30 select-none">
                         <div className="industrial-headline text-4xl mb-2">INTERLOCK</div>
                         <div className="text-[10px] font-mono uppercase tracking-[0.3em]">Ready for secure data processing</div>
                     </div>
                 )}
-                {messages.filter(msg => msg.content !== initialMessage).map((msg) => (
+                {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[85%] p-4 rounded-sm border ${msg.role === 'user'
                             ? 'bg-industrial-copper-500/5 border-industrial-copper-500/30 text-neutral-100 shadow-glow-copper/5'
@@ -135,7 +171,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                                     {new Date(msg.created_at).toLocaleTimeString()}
                                 </div>
                             </div>
-                            <div className="text-sm whitespace-pre-wrap font-mono leading-relaxed tracking-tight">
+                            <div className="text-sm whitespace-pre-wrap font-mono leading-relaxed tracking-tight break-words">
                                 {msg.content}
                             </div>
                         </div>
@@ -155,7 +191,7 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                 <div ref={messagesEndRef} className="h-2" />
             </div>
 
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-industrial-concrete bg-industrial-steel-900/90">
+            <form onSubmit={handleSendMessage} className="p-4 border-t border-industrial-concrete bg-industrial-steel-900/90 shrink-0">
                 <div className="flex gap-2">
                     <input
                         type="text"
@@ -181,6 +217,6 @@ export function ChatInterface({ sessionId, blobs, onRefreshBlobs, initialMessage
                     <span className="text-[8px] font-mono text-industrial-steel-600 uppercase tracking-widest">v1.2.4-stable</span>
                 </div>
             </form>
-        </div>
+        </div >
     );
 }

@@ -377,4 +377,101 @@ describe('Sessions Management', () => {
         // Check for button
         cy.contains('button', 'Generate Critique').should('be.visible')
     })
+
+    it('should replace all duplicate files on upload', () => {
+        const sessionTitle = `Duplicate Test ${Date.now()}`
+        const duplicateBlobName = 'duplicate.txt'
+        const blobId1 = 'blob-1'
+        const blobId2 = 'blob-2'
+        const newBlobId = 'blob-new'
+
+        // Mock Session
+        cy.intercept('POST', '**/api/sessions', (req) => {
+            req.reply({
+                statusCode: 200,
+                body: { id: 'mock-session-dup-id', title: req.body.title, project_id: 'mock-project-id' }
+            })
+        }).as('createSessionDup')
+
+        cy.intercept('GET', '**/api/sessions*', {
+            statusCode: 200,
+            body: [{ id: 'mock-session-dup-id', title: sessionTitle }]
+        }).as('getSessionsDup')
+
+        cy.intercept('GET', '**/api/sessions/mock-session-dup-id', {
+            statusCode: 200,
+            body: { id: 'mock-session-dup-id', title: sessionTitle, status: 'pending' }
+        })
+
+        // Mock Blobs with DUPLICATES
+        cy.intercept('GET', '**/api/sessions/mock-session-dup-id/blobs', {
+            statusCode: 200,
+            body: [
+                {
+                    id: blobId1,
+                    session_id: 'mock-session-dup-id',
+                    file_name: duplicateBlobName,
+                    content_type: 'text/plain',
+                    size: 100,
+                    created_at: new Date().toISOString()
+                },
+                {
+                    id: blobId2, // Second file with SAME NAME
+                    session_id: 'mock-session-dup-id',
+                    file_name: duplicateBlobName,
+                    content_type: 'text/plain',
+                    size: 100,
+                    created_at: new Date().toISOString()
+                }
+            ]
+        }).as('getBlobsDuplicates')
+
+        // Intercept DELETE calls
+        cy.intercept('DELETE', '**/api/blobs/*', {
+            statusCode: 200,
+            body: {}
+        }).as('deleteBlob')
+
+        // Mock Upload
+        cy.intercept('POST', '**/api/sessions/mock-session-dup-id/blobs', {
+            statusCode: 200,
+            body: {
+                id: newBlobId,
+                session_id: 'mock-session-dup-id',
+                file_name: duplicateBlobName,
+                content_type: 'text/plain',
+                size: 200,
+                created_at: new Date().toISOString()
+            }
+        }).as('uploadBlob')
+
+
+        // Create Session
+        cy.contains('+ New Session').click()
+        cy.get('input[placeholder="Operation Name"]').type(sessionTitle)
+        cy.contains('button', 'Initialize').click()
+
+        // Wait for duplicates to appear
+        cy.wait('@getBlobsDuplicates')
+
+        // Create a dummy file and upload
+        // The input is hidden: <input type="file" className="hidden" ... />
+        // There are multiple inputs, we need the one under "Raw Input Files" or generally any upload input.
+        // The "Add Source File" input is:
+        // <label ...> ... <input type="file" className="hidden" onChange={handleFileUpload} multiple /> </label>
+        // We can target input[type="file"] and select the last one or all.
+
+        cy.get('input[type="file"]').last().selectFile({
+            contents: Cypress.Buffer.from('new content'),
+            fileName: duplicateBlobName,
+            mimeType: 'text/plain',
+            lastModified: Date.now(),
+        }, { force: true })
+
+        // Assertions
+        cy.wait('@uploadBlob')
+
+        // We expect DELETE to be called TWICE (for blobId1 and blobId2)
+        cy.get('@deleteBlob.all').should('have.length', 2)
+    })
 })

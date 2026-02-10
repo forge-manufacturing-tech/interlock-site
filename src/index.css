@@ -155,7 +155,6 @@ h6 {
 /* Scanline effect - CRT industrial monitor aesthetic */
 .scanlines {
   position: relative;
-  overflow: hidden;
 }
 
 .scanlines::before {

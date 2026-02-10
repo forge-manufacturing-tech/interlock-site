@@ -13,20 +13,26 @@ export function ProjectsPage() {
     const navigate = useNavigate();
 
     useEffect(() => {
-        loadProjects();
+        const controller = new AbortController();
+        loadProjects(controller.signal);
+        return () => controller.abort();
     }, []);
 
-    const loadProjects = async () => {
+    const loadProjects = async (signal?: AbortSignal) => {
         try {
             setLoading(true);
             const data = await ControllersProjectsService.list();
+            if (signal?.aborted) return;
             setProjects(data);
         } catch (error: any) {
+            if (signal?.aborted) return;
             if (error.status === 401) {
                 logout();
             }
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) {
+                setLoading(false);
+            }
         }
     };
 

@@ -72,13 +72,13 @@ describe('Mobile Responsiveness', () => {
         // Wait for session load (blobs are loaded when selecting a session)
         cy.wait('@getBlobs')
 
-        // The list should be hidden (sidebar)
-        // We can target the sidebar container. It has 'History' text.
-        cy.contains('History').should('not.be.visible')
+        // The list should be hidden on mobile (sidebar has 'hidden lg:block' when session is selected)
+        // We check that the sidebar container is not visible
+        cy.get('div').contains('History').parent().parent().should('not.be.visible')
 
         // The workbench should be visible
-        // In the mock, status is completed, so it shows "COMPLETE"
-        cy.contains('COMPLETE').should('be.visible')
+        // In the mock, status is completed, so it shows "STATUS: COMPLETED"
+        cy.contains('STATUS: COMPLETED').should('be.visible')
     })
 
     it('should navigate back to list from workbench', () => {

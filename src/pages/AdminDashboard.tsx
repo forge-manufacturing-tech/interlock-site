@@ -21,18 +21,24 @@ export function AdminDashboard() {
     const navigate = useNavigate();
 
     useEffect(() => {
-        loadUsers();
+        const controller = new AbortController();
+        loadUsers(controller.signal);
+        return () => controller.abort();
     }, []);
 
-    const loadUsers = async () => {
+    const loadUsers = async (signal?: AbortSignal) => {
         try {
             setLoading(true);
             const data = await ControllersAdminService.listUsers();
+            if (signal?.aborted) return;
             setUsers(data);
         } catch (error: any) {
+            if (signal?.aborted) return;
             console.error('Failed to load users', error);
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) {
+                setLoading(false);
+            }
         }
     };
 
@@ -239,11 +245,10 @@ export function AdminDashboard() {
                                     <td className="p-4 font-medium text-neutral-200">{u.name}</td>
                                     <td className="p-4 font-mono text-sm text-industrial-steel-400">{u.email}</td>
                                     <td className="p-4">
-                                        <span className={`px-2 py-1 text-xs rounded-sm uppercase tracking-wide font-bold ${
-                                            u.role === 'admin'
+                                        <span className={`px-2 py-1 text-xs rounded-sm uppercase tracking-wide font-bold ${u.role === 'admin'
                                                 ? 'bg-industrial-copper-900/50 text-industrial-copper-400 border border-industrial-copper-900'
                                                 : 'bg-industrial-steel-800 text-industrial-steel-400 border border-industrial-steel-700'
-                                        }`}>
+                                            }`}>
                                             {u.role}
                                         </span>
                                     </td>
