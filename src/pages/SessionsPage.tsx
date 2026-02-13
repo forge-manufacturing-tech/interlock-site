@@ -1222,7 +1222,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
     const renderEmptyState = () => {
         if (!wizardStartType) {
             return (
-                <div className="flex flex-col items-center justify-center min-h-[60vh] p-12 animate-in fade-in duration-700">
+                <div className="flex flex-col items-center justify-center min-h-[60vh] p-12">
                     <div className="text-center mb-12">
                         <h3 className="industrial-headline text-3xl mb-4 uppercase tracking-widest text-white">Initialize Tech Transfer</h3>
                         <p className="text-industrial-steel-400 font-mono text-sm uppercase tracking-widest">Select your starting point to begin the conversion process</p>
@@ -1272,7 +1272,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
         }
 
         return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] p-12 animate-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col items-center justify-center min-h-[60vh] p-12">
                 <button
                     onClick={() => setWizardStartType(null)}
                     className="mb-8 text-industrial-steel-500 hover:text-industrial-copper-500 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest transition-colors group"
@@ -1363,7 +1363,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
     const renderVerificationPanel = () => {
         return (
-            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6 animate-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 gap-6">
                 <div className="flex justify-between items-center mb-2">
                     <h2 className="industrial-headline text-2xl">Verification Station</h2>
                     <div className="flex gap-4">
@@ -1484,7 +1484,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
     const renderSharedProductView = () => {
         return (
-            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 animate-in fade-in duration-700 overflow-y-auto custom-scrollbar">
+            <div className="flex flex-col h-full max-w-6xl mx-auto w-full p-6 overflow-y-auto custom-scrollbar">
                 <div className="flex justify-between items-center mb-8 border-b border-industrial-concrete pb-4">
                     <div>
                         <div className="flex items-center gap-3 mb-1">
@@ -2056,7 +2056,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
 
                         {/* 3. Status Panel */}
                         <div className="flex-1 w-full border-l border-industrial-concrete md:pl-8 flex flex-col">
-                            <div className="flex-1 flex flex-col items-center justify-center gap-6 animate-in fade-in zoom-in-95 duration-500">
+                            <div className="flex-1 flex flex-col items-center justify-center gap-6">
                                 {(wizardStep === 3 || selectedSession?.status === 'processing') ? (
                                     <>
                                         <div className="relative w-24 h-24 flex items-center justify-center">
@@ -2268,7 +2268,7 @@ CRITICAL GENERAL INSTRUCTIONS FOR WORD DOCS (Ignore for Images):
                                     {workflowStage === 'ingestion' && renderDesignerIngestionView()}
 
                                     {workflowStage === 'verification' && (
-                                        <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in duration-500 overflow-y-auto">
+                                        <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-y-auto">
                                             <div className="w-20 h-20 mb-6 bg-industrial-copper-500/10 rounded-full flex items-center justify-center border border-industrial-copper-500/30">
                                                 <span className="text-3xl">🔍</span>
                                             </div>
